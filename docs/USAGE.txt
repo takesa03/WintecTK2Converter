@@ -1,0 +1,100 @@
+﻿tk2nmea (C#版) - Wintec TK2 → NMEA / KMZ 変換ツール（GPS週番号ロールオーバー補正付き）
+
+■ ビルド（ソース更新時に1回）
+  build.bat をダブルクリックすると、同じフォルダに tk2nmea.exe ができます。
+  Windows に標準で入っている .NET Framework 4.5 以降の C# コンパイラを使うので、
+  Visual Studio などのインストールは不要です。
+
+■ 使い方
+  1. .tk2 ファイル（複数可）またはフォルダを tk2nmea.exe にドラッグ＆ドロップ
+  2. 記録の時間範囲と「停止区間（60秒以上記録なし）」が表示されます
+  3. 前後をカットしたい場合は開始時刻・終了時刻を入力（例 08:05:00）
+     Enter だけ押すとカットしません
+  4. 同じフォルダに次のファイルができます（名前はカット後の開始日時）
+       YYYYMMDD_HHMMSS.nmea  … NMEA
+       YYYYMMDD_HHMMSS.kmz   … Google Earth Pro 用
+
+  カット位置の決め方の例:
+    まずカットせずに変換 → KMZ を Google Earth で開き、Km_Posts や軌跡の時刻を見て
+    必要な区間の時刻を確認 → もう一度ドロップして時刻を入力
+
+■ KMZ（Google Earth Pro 用）の中身
+  ・スタート（緑）/ ゴール（赤）の目印
+  ・走行軌跡 (時間再生) : 時間スライダーで走行位置のアイコンが動きます
+  ・Speed_Track(Km)     : 速度で色分けした線。既定は 5km/h 刻み
+                          紫(0) → 青(20) → 水色(40) → 緑(60) → 黄(80) → 橙(100) → 赤(120以上) の間を
+                          なめらかに補間した色（speedstep=20 にすると TimeMachineX と同じ 7 色）
+  ・Km_Posts            : スタートから 1km ごとの目印（通過時刻・経過時間・速度付き）
+                          シンボル・色・大きさは tk2nmea.ini で変更できます
+  ・画面左下に速度の凡例
+  ・走行アニメーション（ツアー）: 「場所」パネルの「走行アニメーション」をダブルクリックで再生。
+          カメラが車を追いかけ、走った所だけ Speed_Track の線と Km ポストが現れて残ります。
+          動画にするには「ツール → ムービーメーカー」で、このツアーを選んで録画します。
+          ツアーを作るとき、Speed_Track・Km ポストには通過時刻が付くため、普段の表示でも
+          画面上部の時間スライダーで表示範囲を変えられます（全部表示するときはスライダーを全範囲に）。
+  ・高さ: 既定では GPS で記録した高度で線を描きます（橋や高架道路の上に線が乗ります）。
+          Google Earth の地形には橋や高架が含まれないため、「地表に沿わせる」表示だと
+          橋の上では海面に線が描かれてしまうためです。
+          GPS の高さは誤差があり、実際より 10～20m ほど高めに出ることがあります。
+          線が道路から浮いて見える場合は tk2nmea.ini の altoffset をマイナスにしてください。
+  速度・距離・Km ポストの計算は TimeMachineX と同じ方式です。
+
+■ 設定ファイル tk2nmea.ini（exe と同じフォルダ）
+  メモ帳で開いて書き換え、保存すると次のドロップから反映されます。
+    kmicon    Km ポストのシンボル: pin / flag / star / circle / square / diamond /
+              triangle / target / donut / dot / paddle、画像の URL、または png ファイル
+    kmcolor   シンボルとラベルの色: yellow / orange / red / white など、または #RRGGBB
+    kmscale   シンボルの大きさ（1 = 標準）
+    kmlabel   「5 Km」の文字の大きさ（0 で非表示）
+    speedstep Speed_Track の色分けの幅 [km/h]
+    speedmax  この速度以上を最高色（赤）にする [km/h]
+    altitude  gps = GPS 高度で表示 / ground = 地表に沿わせる
+    altoffset GPS 高度の補正値 [m]（例 -10）
+    groundoffset altitude=ground のとき、線・マーカー・カメラを地表から浮かせる高さ [m]（0 = 浮かせない）
+    altsmooth GPS 高度の移動平均の幅 [秒]
+    extrude   1 = 線から地面まで幕を下ろす
+    tour        1 = 走行アニメーション（ツアー）を作る / 0 = 作らない
+    tourspeed   再生の倍速（10 なら 1 時間の走行を 6 分で再生）
+    tourstep    カメラ位置の間隔 [秒]
+    tourrange   カメラから車までの距離 [m]
+    tourtilt    カメラの傾き [度]（0 = 真上, 90 = 水平）
+    tourheading follow = 進行方向を向く / north = 北が上
+    trackline   1 = 走行軌跡自身の線を表示（単色。時間に合わせて滑らかに伸びる。Speed_Track は非表示）
+    trackcolor  trackline の線の色（名前 / #RRGGBB）
+    trackwidth  trackline の線の太さ
+    carname     自車マーカーの下に出すラベル（車種名など。空なら出さない）
+    carlabel    ラベルの大きさ
+    tourseg     軌跡を伸ばす刻みの分割数（2 = 0.5 秒刻み, 3 = 1/3 秒刻み, 1 = 分割しない）
+    tourlead    軌跡の先端位置の補正 [秒]（0 = 車が通過した点まで。+ で先行、- で後退）
+    tourheadwin 進行方向を求める範囲 [秒]（大きいほどカーブでカメラが振られにくい）
+    tourheadtau カメラの向きの追従の遅れ [秒]（0 = すぐ向く。大きいほどゆっくり追従）
+    googleearth  kmz / kml / none
+    localdate 0 = NMEA の日付を UTC / 1 = 日本時間
+  シンボルの見本: kmicon_samples.kmz を Google Earth で開くと、シンボル × 色を並べて比較できます。
+
+■ 補正内容
+  ロガーが GPS 週番号ロールオーバーで 1024 週（7168日）前の日付を記録しているため、
+  2019-04-07 より前の日付には自動で 1024 週を加算します。時刻はそのままです。
+  NMEA のチェックサムは出力時に正しく計算されます。
+
+■ NMEA の日付について
+  NMEA の $GPRMC の日付は規格上 UTC です。既定では UTC 日付で出力します
+  （例: 日本時間 2026-09-26 07:08 は UTC 2026-09-25 22:08 → "250926"）。
+  日本時間の日付（"260926"）で出したい場合は tk2nmea_日本時間日付.bat にドロップするか、
+  -localdate を付けてください。
+
+■ コマンドラインオプション
+  -start T    この時刻より前をカット（08:05:00 / 08:05 / 2026-09-26 08:05:00）
+  -end T      この時刻より後をカット
+  -localdate  RMC の日付を現地日付（ヘッダのタイムゾーン）で出力
+  -weeks N    補正週数を手動指定（0 で補正なし、既定は自動）
+  -o DIR      出力先フォルダ
+  -kml        KMZ ではなく KML で出力（凡例画像なし）
+  -nokml      Google Earth 用ファイルを出力しない（NMEA のみ）
+  -nopause    時刻の問い合わせと終了時の Enter 待ちをしない
+  -kmicon X / -kmcolor C / -kmscale S / -kmlabel S / -speedstep N / -speedmax N
+  -altitude gps|ground / -altoffset m / -groundoffset m / -altsmooth 秒 / -extrude 0|1
+  -tour 0|1 / -tourspeed 倍 / -tourstep 秒 / -tourrange m / -tourtilt 度 / -tourheading follow|north / -trackline 0|1 / -trackcolor C / -trackwidth N / -carname 名前 / -carlabel S / -tourseg N / -tourlead 秒 / -tourheadwin 秒 / -tourheadtau 秒
+              tk2nmea.ini と同じ設定（こちらが優先）
+
+  例: tk2nmea.exe -start 07:30 -end 08:30 D:\GPS\20070210_070806.tk2

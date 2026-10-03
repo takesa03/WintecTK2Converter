@@ -1,0 +1,11 @@
+# built binaries
+*.exe
+# personal GPS logs and outputs
+*.tk2
+*.nmea
+*.kmz
+!kmicon_samples.kmz
+*.kml
+# backups / old files
+*.bak*
+_old/

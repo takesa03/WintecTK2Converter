@@ -1,0 +1,6 @@
+* text=auto
+*.bat -text
+*.cs -text
+*.ini -text
+*.txt -text
+*.kmz binary
