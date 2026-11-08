@@ -9,3 +9,9 @@
 # backups / old files
 *.bak*
 _old/
+# .NET build output
+bin/
+obj/
+publish/
+# ドライバー名の保存ファイル (個人のログに紐づく)
+*.drivers.json

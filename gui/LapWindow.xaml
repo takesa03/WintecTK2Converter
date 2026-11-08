@@ -1,0 +1,154 @@
+﻿<Window x:Class="Tk2Gui.LapWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ラップ・セクタータイム" Height="820" Width="1180" MinHeight="600" MinWidth="960"
+        AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
+        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,5"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+        </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="10">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 左: 入力 -->
+        <ScrollViewer Name="LeftPanel" Grid.Row="0" Grid.Column="0" Width="310" VerticalScrollBarVisibility="Auto" Margin="0,0,10,0">
+            <StackPanel>
+                <GroupBox Header="コース定義 (*.course.json)">
+                    <StackPanel>
+                        <TextBlock Name="CourseText" Text="(未選択)" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                        <Button Content="開く..." HorizontalAlignment="Left" Click="OpenCourse_Click"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="走行ログ (.tk2 / .nmea)">
+                    <StackPanel>
+                        <ListBox Name="FileList" Height="100" SelectionMode="Extended"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <Button Content="追加..." Click="AddFile_Click"/>
+                            <Button Content="削除" Click="RemoveFile_Click"/>
+                        </StackPanel>
+                        <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Text="ドラッグ＆ドロップでも追加できます。ファイルごとにセッションを分けて解析します。"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="設定">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="停止とみなす秒数" VerticalAlignment="Center" Margin="0,0,8,6"
+                                   ToolTip="この秒数以上止まっていたら、ピットイン (ドライバー交代など) として新しいセッションにします"/>
+                        <TextBox Grid.Column="1" Name="PitStopBox" Text="30" Width="60" HorizontalAlignment="Left" Margin="0,0,0,6"
+                                 ToolTip="この秒数以上止まっていたら、ピットイン (ドライバー交代など) として新しいセッションにします"/>
+                        <TextBlock Grid.Row="1" Text="通過の最低速度 (km/h)" VerticalAlignment="Center" Margin="0,0,8,6"
+                                   ToolTip="これより遅い通過は無視します (停止中の GPS のふらつきで、ラインを通ったと誤検出しないため)"/>
+                        <TextBox Grid.Row="1" Grid.Column="1" Name="MinSpeedBox" Text="8" Width="60" HorizontalAlignment="Left" Margin="0,0,0,6"
+                                 ToolTip="これより遅い通過は無視します (停止中の GPS のふらつきで、ラインを通ったと誤検出しないため)"/>
+                        <TextBlock Grid.Row="2" Text="遅い周回の倍率" VerticalAlignment="Center" Margin="0,0,8,6"
+                                   ToolTip="周回タイムがセッションの中央値のこの倍を超える周回を「遅い周回」(スピン・コースアウトなど) とし、ベストから外します。小さいほど厳しい判定です。どれかの区間が通常の 1.5 倍を超える周回も遅い周回にします"/>
+                        <TextBox Grid.Row="2" Grid.Column="1" Name="SlowLapBox" Text="1.25" Width="60" HorizontalAlignment="Left" Margin="0,0,0,6"
+                                 ToolTip="周回タイムがセッションの中央値のこの倍を超える周回を「遅い周回」(スピン・コースアウトなど) とし、ベストから外します。小さいほど厳しい判定です。どれかの区間が通常の 1.5 倍を超える周回も遅い周回にします"/>
+                        <Button Grid.Row="3" Grid.ColumnSpan="2" Name="AnalyzeButton" Content="解析する" FontWeight="Bold" Padding="22,8"
+                                HorizontalAlignment="Left" Margin="0,4,0,0" Click="Analyze_Click" IsEnabled="False"/>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="結果の保存">
+                    <StackPanel>
+                        <Button Name="CsvButton" Content="CSV に保存..." HorizontalAlignment="Left" Click="SaveCsv_Click" IsEnabled="False"/>
+                        <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                                   Text="セッション番号・ドライバー名・各区間のタイム・最高速度などを、全セッション続けて保存します (Excel で開けます)。"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"
+                           Text="マーク: ★ = 全セッション通しての最速 (ラップ・区間・最高速), ※ = そのセッション内での最速。最高速は 1 周の中で出た最高の km/h です。"/>
+                <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap"
+                           Text="区間: S1 = コントロール → Sector1, S2 = Sector1 → Sector2, ... 最後の区間はコントロールラインで終わります。アウトラップは最初に通ったラインから計測し、ラップタイムは出しません。"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 右: 結果 (セッション一覧・周回表はそれぞれ折りたたみできる) -->
+        <Grid Grid.Row="0" Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Name="LapsRow" Height="*"/>
+            </Grid.RowDefinitions>
+            <DockPanel Margin="0,0,0,6">
+                <Button DockPanel.Dock="Right" Name="PanelButton" Content="◀ 設定を隠す" Padding="8,2" Margin="8,0,0,0" Click="TogglePanel_Click"
+                        ToolTip="左の設定パネルを隠して、結果を広く表示します"/>
+                <TextBlock Name="InfoText" TextWrapping="Wrap" Foreground="DarkGreen" FontWeight="Bold" VerticalAlignment="Center"
+                           Text="コース定義と走行ログを選んで「解析する」を押してください"/>
+            </DockPanel>
+
+            <Expander Grid.Row="1" Name="SessionExp" IsExpanded="True" Margin="0,0,0,6" FontWeight="SemiBold"
+                      Header="セッション一覧">
+                <DataGrid Name="SessionGrid" FontWeight="Normal" MaxHeight="190" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                          SelectionMode="Single" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                          SelectionChanged="SessionGrid_SelectionChanged" CellEditEnding="SessionGrid_CellEditEnding" Margin="0,4,0,0">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="セッション" Binding="{Binding Title}" IsReadOnly="True" Width="90"/>
+                        <DataGridTextColumn Header="ドライバー (入力できます。自動で保存)" Binding="{Binding Driver, UpdateSourceTrigger=LostFocus}" Width="180"/>
+                        <DataGridTextColumn Header="時間帯" Binding="{Binding Range}" IsReadOnly="True" Width="130"/>
+                        <DataGridTextColumn Header="周回" Binding="{Binding LapCount}" IsReadOnly="True" Width="50"/>
+                        <DataGridTextColumn Header="ベスト" Binding="{Binding Best}" IsReadOnly="True" Width="90"/>
+                        <DataGridTextColumn Header="最高速" Binding="{Binding BestMax}" IsReadOnly="True" Width="90"/>
+                        <DataGridTextColumn Header="開始" Binding="{Binding StartKind}" IsReadOnly="True" Width="*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Expander>
+
+            <Expander Grid.Row="2" Name="LapExp" IsExpanded="True" FontWeight="SemiBold" Header="周回表"
+                      Expanded="LapExp_Changed" Collapsed="LapExp_Changed">
+                <Grid TextElement.FontWeight="Normal" Margin="0,4,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <CheckBox Name="AllCheck" VerticalAlignment="Center" Checked="AllCheck_Changed" Unchecked="AllCheck_Changed"
+                                  Content="全セッションを続けて表示する (区切り行をクリックで、そのセッションを畳む/開く)"/>
+                        <Button Content="すべて畳む" Click="CollapseAll_Click" Margin="16,0,6,0" Padding="8,2"/>
+                        <Button Content="すべて展開" Click="ExpandAll_Click" Padding="8,2"/>
+                    </StackPanel>
+                    <DataGrid Grid.Row="1" Name="LapGrid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                              HeadersVisibility="Column" GridLinesVisibility="Horizontal" LoadingRow="LapGrid_LoadingRow"
+                              MouseLeftButtonUp="LapGrid_MouseLeftButtonUp"/>
+                </Grid>
+            </Expander>
+        </Grid>
+        <!-- 下部のログ (畳める。畳んでいる間は、見出しに最新の 1 行を出す) -->
+        <Expander Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Name="LogExp" IsExpanded="True" Margin="0,8,0,0"
+                  HorizontalContentAlignment="Stretch" FontWeight="SemiBold" Expanded="LogExp_Changed" Collapsed="LogExp_Changed">
+            <Expander.Header>
+                <TextBlock Name="LogHeader" Text="ログ" TextTrimming="CharacterEllipsis"/>
+            </Expander.Header>
+            <TextBox Name="LogBox" FontWeight="Normal" Height="80" IsReadOnly="True" Margin="0,4,0,0"
+                     VerticalScrollBarVisibility="Auto" FontFamily="Consolas, MS Gothic" FontSize="12"/>
+        </Expander>
+    </Grid>
+</Window>

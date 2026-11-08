@@ -281,7 +281,7 @@ namespace Tk2Nmea
         }
 
         // exe と同じフォルダの tk2nmea.ini を読む (key=value, ; または # 以降はコメント)
-        static void LoadIni(Options o)
+        internal static void LoadIni(Options o)
         {
             string path = Path.Combine(ExeDir(), "tk2nmea.ini");
             if (!File.Exists(path)) return;
@@ -411,7 +411,7 @@ namespace Tk2Nmea
             return args[i];
         }
 
-        static List<string> Collect(List<string> inputs)
+        internal static List<string> Collect(List<string> inputs)
         {
             List<string> files = new List<string>();
             foreach (string a in inputs)
@@ -459,7 +459,7 @@ namespace Tk2Nmea
             return new DateTime(year, mon, day, hour, min, sec, DateTimeKind.Unspecified); // 値は UTC
         }
 
-        static Track LoadTrack(string path, Options opt)
+        internal static Track LoadTrack(string path, Options opt)
         {
             if (!File.Exists(path)) throw new FileNotFoundException("ファイルが見つかりません: " + path);
             byte[] data = File.ReadAllBytes(path);
@@ -504,7 +504,7 @@ namespace Tk2Nmea
         static readonly string[] DateTimeFormats = { "yyyy-MM-dd H:mm:ss", "yyyy-MM-dd H:mm", "yyyy/MM/dd H:mm:ss", "yyyy/MM/dd H:mm" };
 
         // 入力文字列を現地時刻として解釈する。時刻のみなら、ログの範囲に入る日付を補う。
-        static bool TryParseLocal(string s, DateTime firstLocal, DateTime lastLocal, out DateTime result)
+        internal static bool TryParseLocal(string s, DateTime firstLocal, DateTime lastLocal, out DateTime result)
         {
             s = s.Trim();
             DateTime dt;
@@ -539,11 +539,12 @@ namespace Tk2Nmea
         }
 
         // 時間範囲と停止区間(記録が 60 秒以上途切れた所)を表示
-        static void PrintSummary(Track t)
+        internal static List<string> SummaryLines(Track t, int max)
         {
+            List<string> lines = new List<string>();
             Record[] r = t.Recs;
             int n = r.Length;
-            Console.WriteLine(string.Format("  記録: {0} ～ {1}  ({2} 点)",
+            lines.Add(string.Format("  記録: {0} ～ {1}  ({2} 点)",
                 (r[0].Time + t.Tz).ToString("yyyy-MM-dd HH:mm:ss", Inv), (r[n - 1].Time + t.Tz).ToString("HH:mm:ss", Inv), n));
             List<string> stops = new List<string>();
             for (int i = 1; i < n; i++)
@@ -556,11 +557,16 @@ namespace Tk2Nmea
             }
             if (stops.Count > 0)
             {
-                Console.WriteLine("  停止区間 (60 秒以上記録なし):");
-                int max = 30;
-                for (int i = 0; i < stops.Count && i < max; i++) Console.WriteLine(stops[i]);
-                if (stops.Count > max) Console.WriteLine(string.Format("    ... ほか {0} 件", stops.Count - max));
+                lines.Add("  停止区間 (60 秒以上記録なし):");
+                for (int i = 0; i < stops.Count && i < max; i++) lines.Add(stops[i]);
+                if (stops.Count > max) lines.Add(string.Format("    ... ほか {0} 件", stops.Count - max));
             }
+            return lines;
+        }
+
+        static void PrintSummary(Track t)
+        {
+            foreach (string s in SummaryLines(t, 30)) Console.WriteLine(s);
         }
 
         static Record[] Trim(Track t, DateTime? startLocal, DateTime? endLocal)
@@ -580,7 +586,7 @@ namespace Tk2Nmea
 
         // ================= 変換 =================
 
-        static List<string> ConvertFile(string path, Options opt, out string info)
+        internal static List<string> ConvertFile(string path, Options opt, out string info)
         {
             Track t = LoadTrack(path, opt);
             Record[] all = t.Recs;
