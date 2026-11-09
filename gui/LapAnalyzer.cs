@@ -41,6 +41,7 @@ namespace Tk2Gui
         public double SlowLapRatio = 1.25;       // セッションの周回タイム中央値のこの倍を超える周回を「遅い周回」とする (スピン・コースアウトなど)
         public double SlowSectorRatio = 1.5;     // どれかの区間タイムが、セッション内のその区間の中央値のこの倍を超える周回も「遅い周回」とする
         public double StopSpeedKmh = 6;          // 区間の平均速度がこれ未満の間を「停止」とみなす (ロガーの記録が途切れている間も含む)
+        public Dictionary<string, SessionEdits> Edits;   // 手動のセッション編集 (キー = SessionEdits.Key(ログのパス))
         public double MaxSectorSec = 120;        // 停止がないのに、この秒数を超えて次のラインを通らなければ「欠測」として周回を無効にする
     }
 
@@ -50,6 +51,7 @@ namespace Tk2Gui
         public int LapNo;                         // Normal の周回番号 (1〜)。OUT は 0
         public LapType Type;
         public bool IsIn;                         // ピットインにつながる周回 (IN ラップ)
+        public bool ContainsStop;                 // 手動で結合した停止を含む周回 (タイムに停止の時間が入るので、ベストの対象外)
         public bool Valid = true;                 // false = 順序が崩れて無効
         public string Note = "";
         public double StartT, EndT;               // 計測の開始・終了時刻 (ログの通算秒)
@@ -85,6 +87,7 @@ namespace Tk2Gui
         public string Driver = "";
         public string FileName;
         public string FilePath;                   // フルパス (ドライバー名の保存先を決めるため)
+        public string EditNote = "";              // 手動編集の注記 (手動分割・結合済みなど)
         public double StartT, EndT;               // 最初・最後のライン通過時刻
         public List<LapRecord> Laps = new List<LapRecord>();
         public double? BestLap;
@@ -115,7 +118,8 @@ namespace Tk2Gui
 
         sealed class Seg
         {
-            public double[] T, X, Y, V;   // V: その点に着いたときの区間の速度 [km/h] (欠測をまたぐ場合は NaN)
+            public double[] T, X, Y, V, VR, RS;   // VR: 最高速・通過速度の表示用。ロガーの記録した速度があればそれ (位置が 1 点飛んでも異常値にならない)、無ければ V
+            // V: その点に着いたときの区間の速度 [km/h] (欠測をまたぐ場合は NaN)
         }
 
         public static string FormatTime(double? sec)
@@ -172,7 +176,7 @@ namespace Tk2Gui
         static Seg ToSeg(List<GpsSample> list, double lat0, double lon0, double kx, double ky, LapParams prm)
         {
             int n = list.Count;
-            Seg s = new Seg { T = new double[n], X = new double[n], Y = new double[n], V = new double[n] };
+            Seg s = new Seg { T = new double[n], X = new double[n], Y = new double[n], V = new double[n], VR = new double[n], RS = new double[n] };
             for (int i = 0; i < n; i++)
             {
                 s.T[i] = list[i].T; s.X[i] = (list[i].Lon - lon0) * kx; s.Y[i] = (list[i].Lat - lat0) * ky;
@@ -185,6 +189,10 @@ namespace Tk2Gui
                     ? Math.Sqrt(Math.Pow(s.X[i] - s.X[i - 1], 2) + Math.Pow(s.Y[i] - s.Y[i - 1], 2)) / dt * 3.6
                     : double.NaN;
             }
+            s.VR[0] = double.NaN;
+            for (int i = 0; i < n; i++) s.RS[i] = list[i].SpeedKmh;
+            for (int i = 1; i < n; i++)
+                s.VR[i] = double.IsNaN(s.V[i]) || double.IsNaN(list[i].SpeedKmh) ? s.V[i] : list[i].SpeedKmh;
             return s;
         }
 
@@ -198,7 +206,7 @@ namespace Tk2Gui
             {
                 double dt = s.T[i] - s.T[i - 1];
                 if (dt <= 0 || dt > prm.MaxGapSec) continue;
-                double v = s.V[i];
+                double v = s.VR[i];
                 if (double.IsNaN(v) || v < prm.MinCrossSpeedKmh) continue;
                 double px = s.X[i - 1], py = s.Y[i - 1], dx = s.X[i] - px, dy = s.Y[i] - py;
                 for (int k = 0; k < M; k++)
@@ -241,7 +249,7 @@ namespace Tk2Gui
             {
                 if (s.T[i] <= ta) continue;
                 if (s.T[i] >= tb) break;
-                double v = s.V[i];
+                double v = s.VR[i];
                 if (double.IsNaN(v)) continue;
                 if (v > max) max = v;
                 if (v < min) min = v;
@@ -258,6 +266,8 @@ namespace Tk2Gui
             {
                 double dt = s.T[i] - s.T[i - 1];
                 double v = dt > 0 ? Math.Sqrt(Math.Pow(s.X[i] - s.X[i - 1], 2) + Math.Pow(s.Y[i] - s.Y[i - 1], 2)) / dt * 3.6 : 0;
+                // 記録の間隔が短いログ (5Hz など) は、停止中の位置のふらつきで速度が大きく出るので、ロガーが記録した速度があればそれを使う
+                if (dt > 0 && dt <= prm.MaxGapSec && !double.IsNaN(s.RS[i])) v = s.RS[i];
                 if (v < prm.StopSpeedKmh)
                 {
                     if (double.IsNaN(runStart)) runStart = s.T[i - 1];
@@ -282,15 +292,26 @@ namespace Tk2Gui
             Crossing prev = new Crossing();
             double logStart = sg.T[0], logEnd = sg.T[sg.T.Length - 1];
             int lapNo = 0;
+            bool manualStart = false;
             bool fromStop = stops.Any(st => st[0] <= logStart + 2);   // ログの最初から止まっている = 停止からの発進
+            SessionEdits ed = null;
+            if (prm.Edits != null && fpath != null) prm.Edits.TryGetValue(SessionEdits.Key(fpath), out ed);
 
             foreach (Crossing c in cs)
             {
+                bool mergeSkip = false, splitAfter = false;
                 if (havePrev)
                 {
                     // 2 つの通過の間に長い停止があった = ピットイン (ドライバー交代など)
                     bool stopBetween = stops.Any(st => st[0] >= prev.T - 2 && st[0] <= c.T);
-                    if (stopBetween || (prev.Gate == 0 && c.T - prev.T > prm.PitStopSec))
+                    bool autoSplit = stopBetween || (prev.Gate == 0 && c.T - prev.T > prm.PitStopSec);
+                    // 手動の編集: 結合 (自動の分割を取りやめる) と、分割 (この通過から新しいセッションにする)
+                    bool merged = autoSplit && ed != null && ed.HasMergeAt(c.T);
+                    bool manualSplit = !autoSplit && ed != null && ed.Splits.Any(sp => sp > prev.T + 0.0005 && sp <= c.T + 0.005);
+                    if (merged) mergeSkip = true;
+                    // コントロールラインでの手動分割は、この通過で前の周回 (IN ラップ) を最後まで計測してから、ここから新しいセッションにする
+                    splitAfter = manualSplit && c.Gate == 0;
+                    if ((autoSplit && !merged) || (manualSplit && !splitAfter))
                     {
                         if (lap != null && lap.Sector.All(v => !v.HasValue)) sess.Laps.Remove(lap);
                         else if (lap != null && prev.Gate != 0)
@@ -299,13 +320,15 @@ namespace Tk2Gui
                             lap.Type = LapType.Incomplete; lap.IsIn = true;
                             lap.Note = (lap.Note.Length > 0 ? lap.Note + " / " : "") + "ピットイン (コントロールライン手前で停止)";
                         }
-                        CloseSession(sess, prev.T, prev.Gate == 0);
-                        sess = null; lap = null; havePrev = false; fromStop = true;
+                        CloseSession(sess, prev.T, autoSplit && prev.Gate == 0);
+                        sess = null; lap = null; havePrev = false; fromStop = autoSplit;   // 手動の分割は、止まっていないので「停止からの発進」ではない
+                        manualStart = manualSplit;
                     }
                 }
                 if (sess == null)
                 {
                     sess = new SessionRecord { No = ++sessionNo, FileName = fname, FilePath = fpath == null ? null : Path.GetFullPath(fpath), StartT = c.T };
+                    if (manualStart) { sess.EditNote = "手動分割"; manualStart = false; }
                     res.Sessions.Add(sess);
                     lapNo = 0;
                 }
@@ -322,7 +345,15 @@ namespace Tk2Gui
                     double dt = c.T - prev.T;
                     int fwd = (c.Gate - prev.Gate + M) % M;              // 次のラインまでいくつ先か (1 が普通)
                     bool skipsOnly = fwd >= 1 && prev.Gate + fwd <= M;   // コントロールを飛ばさず、セクターラインだけを飛ばした
-                    if (dt > prm.MaxSectorSec)
+                    if (mergeSkip)
+                    {
+                        // 手動で結合した: 停止はなかったものとして、前のラインの通過から計測を続ける (停止の時間もその区間に入る)。
+                        // この周回は、停止の時間を含むのでベストの対象にしない
+                        lap.ContainsStop = true;
+                        lap.Note = (lap.Note.Length > 0 ? lap.Note + " / " : "") + "結合: 停止を含む周回 (ベスト対象外)";
+                        if (!sess.EditNote.Contains("結合")) sess.EditNote = (sess.EditNote.Length > 0 ? sess.EditNote + " / " : "") + "結合済み";
+                    }
+                    if (dt > prm.MaxSectorSec && !mergeSkip)
                     {
                         // 停止もないのに長く途切れた (欠測): 周回を無効にして、ここから計測し直す
                         lap.Valid = false;
@@ -375,6 +406,17 @@ namespace Tk2Gui
                     }
                 }
                 prev = c; havePrev = true;
+
+                if (splitAfter)
+                {
+                    // この通過で始めた周回は新しいセッションのものにする。いまのセッションは、この通過で終える (最後の周回は IN)
+                    if (lap != null) sess.Laps.Remove(lap);
+                    CloseSession(sess, c.T, true);
+                    sess = new SessionRecord { No = ++sessionNo, FileName = fname, FilePath = fpath == null ? null : Path.GetFullPath(fpath), StartT = c.T, EditNote = "手動分割" };
+                    res.Sessions.Add(sess);
+                    lapNo = 0;
+                    lap = NewLap(sess, c, M, fname, false);
+                }
             }
 
             if (sess != null)
@@ -494,7 +536,7 @@ namespace Tk2Gui
         // ベストの対象: 有効な 1 周 (OUT・途中・未完・遅い周回は対象外)
         static bool CountsForBest(LapRecord l)
         {
-            return l.Valid && l.Type == LapType.Normal && l.LapTime.HasValue && !l.Note.Contains("遅い");
+            return l.Valid && l.Type == LapType.Normal && l.LapTime.HasValue && !l.Note.Contains("遅い") && !l.ContainsStop;
         }
 
         // 最高速ベストの対象: 有効な 1 周 (速度は実際に出た値なので、遅い周回・IN ラップも含む)

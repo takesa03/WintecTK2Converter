@@ -33,6 +33,7 @@ namespace Tk2Gui
         public double T;
         public double Lat;
         public double Lon;
+        public double SpeedKmh = double.NaN;   // ロガーが記録した速度 (NMEA の RMC)。無ければ NaN
     }
 
     /// <summary>.tk2 / .nmea から位置列を読む。</summary>
@@ -84,7 +85,9 @@ namespace Tk2Gui
                 double lon = int.Parse(f[5].Substring(0, 3), inv) + double.Parse(f[5].Substring(3), inv) / 60.0;
                 if (f[4] == "S") lat = -lat;
                 if (f[6] == "W") lon = -lon;
-                list.Add(new GpsSample { T = (day0 + dayOffset) * 86400 + tod, Lat = lat, Lon = lon });
+                double kn;
+                double sp = f[7].Length > 0 && double.TryParse(f[7], NumberStyles.Float, inv, out kn) ? kn * 1.852 : double.NaN;
+                list.Add(new GpsSample { T = (day0 + dayOffset) * 86400 + tod, Lat = lat, Lon = lon, SpeedKmh = sp });
             }
             if (list.Count < 10) throw new InvalidDataException("位置データが読めません: " + Path.GetFileName(path));
             return list;

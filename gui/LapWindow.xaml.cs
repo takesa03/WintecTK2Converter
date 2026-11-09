@@ -45,6 +45,53 @@ namespace Tk2Gui
         public event PropertyChangedEventHandler PropertyChanged;
         public bool IsHeader, IsOut, IsInvalid, IsBest, IsIn, IsSessionBest;
         public int SessionNo;                  // 区切り行のとき、そのセッションの番号 (クリックで畳む/開く)
+        public SessionRecord Sess;             // この行が属するセッション (右クリックの分割・結合に使う)
+        public LapRecord Rec;                  // 周回行のとき、その周回
+    }
+
+    /// <summary>周回表のセルの太さ。★・※の付いた値 (ラップ・区間・最高速) を太字にする。それ以外は行の太さのまま (区切り行・全体ベストの周回は行ごと太字)。</summary>
+    public sealed class MarkWeightConverter : System.Windows.Data.IValueConverter
+    {
+        /// <summary>そのセルの値に ★ か ※ が付いているか (key = LapTime / MaxKmh / S0, S1, ...)</summary>
+        public static bool IsMarked(LapRow r, string key)
+        {
+            if (r == null) return false;
+            string text = null;
+            if (key == "LapTime") text = r.LapTime;
+            else if (key == "MaxKmh") text = r.MaxKmh;
+            else if (key != null && key.StartsWith("S") && r.Sectors != null)
+            {
+                int k;
+                if (int.TryParse(key.Substring(1), NumberStyles.Integer, CultureInfo.InvariantCulture, out k) && k >= 0 && k < r.Sectors.Length) text = r.Sectors[k];
+            }
+            return text != null && (text.Contains("★") || text.Contains("※"));
+        }
+
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            LapRow r = value as LapRow;
+            if (r == null) return FontWeights.Normal;
+            return IsMarked(r, parameter as string) || r.IsHeader || (r.IsBest && !r.IsInvalid) ? FontWeights.Bold : FontWeights.Normal;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) { throw new NotSupportedException(); }
+    }
+
+    /// <summary>周回表のセルの文字色。★・※の付いた値を赤にする。それ以外は行の文字色 (無効な周回は赤茶、それ以外は黒)。</summary>
+    public sealed class MarkBrushConverter : System.Windows.Data.IValueConverter
+    {
+        static readonly Brush Red = Frozen(new SolidColorBrush(Color.FromRgb(0xE0, 0x00, 0x00)));
+        static Brush Frozen(SolidColorBrush b) { b.Freeze(); return b; }
+
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            LapRow r = value as LapRow;
+            if (r == null) return Brushes.Black;
+            if (MarkWeightConverter.IsMarked(r, parameter as string)) return Red;
+            return r.IsInvalid ? Brushes.Firebrick : Brushes.Black;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) { throw new NotSupportedException(); }
     }
 
     public partial class LapWindow : Window
@@ -52,6 +99,7 @@ namespace Tk2Gui
         CourseDefinition _def;
         LapAnalysis _res;
         bool _busy;
+        bool _readOnly;                                            // CSV を表示しているとき (ログがないので、分割・結合はできない)
         Task _saveChain = Task.CompletedTask;                     // ドライバー名の書き込みを順番に行うための鎖
         readonly HashSet<int> _collapsed = new HashSet<int>();   // 畳んでいるセッションの番号 (全セッション表示のとき)
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
@@ -95,6 +143,29 @@ namespace Tk2Gui
             catch (Exception ex)
             {
                 MessageBox.Show(this, ex.Message, "開けませんでした", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // 保存したラップ CSV を読み込んで表示する (読み取り専用: ログがないので、分割・結合や再解析はできない)
+        void OpenCsv_Click(object sender, RoutedEventArgs e)
+        {
+            if (_busy) return;
+            OpenFileDialog dlg = new OpenFileDialog();
+            dlg.Title = "ラップ CSV を開く";
+            dlg.Filter = "ラップ CSV (*.csv)|*.csv|すべてのファイル (*.*)|*.*";
+            if (dlg.ShowDialog(this) != true) return;
+            try
+            {
+                LapAnalysis res = LapCsv.Read(dlg.FileName);
+                _res = res;
+                _readOnly = true;
+                Log("CSV を表示: " + dlg.FileName);
+                ShowResult();
+                InfoText.Text += "   [CSV 表示中・読み取り専用: " + System.IO.Path.GetFileName(dlg.FileName) + "]";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "CSV を開けませんでした", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -148,6 +219,11 @@ namespace Tk2Gui
 
         async void Analyze_Click(object sender, RoutedEventArgs e)
         {
+            await RunAnalysisAsync(null);
+        }
+
+        async Task RunAnalysisAsync(double? focusT)
+        {
             if (_busy || _def == null) return;
             LapParams prm = new LapParams();
             try
@@ -168,19 +244,30 @@ namespace Tk2Gui
             InfoText.Foreground = Brushes.DarkGreen;
             InfoText.Text = "解析中...";
             Log("--- 解析開始: " + string.Join(", ", paths.Select(System.IO.Path.GetFileName)));
+            System.Diagnostics.Stopwatch swAll = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 LapAnalysis res = await Task.Run(() =>
                 {
                     List<List<GpsSample>> files = paths.Select(GpsLoader.Load).ToList();
+                    foreach (string p in paths)       // 手動のセッション編集を、保存ファイルから読む (まだ読んでいないログだけ)
+                    {
+                        string key = SessionEdits.Key(p);
+                        if (!_edits.ContainsKey(key)) _edits[key] = SessionEditStore.Load(p);
+                    }
+                    prm.Edits = _edits.ToDictionary(kv => kv.Key, kv => kv.Value);
                     LapAnalysis r = LapAnalyzer.Analyze(def, files, paths, prm);
                     restored = DriverStore.Apply(r);        // 保存してあるドライバー名を復元 (ファイルを読むので裏で行う)
                     return r;
                 });
+                long msCalc = swAll.ElapsedMilliseconds;
                 _res = res;
+                _readOnly = false;
                 foreach (string l in res.Log) Log(l);
                 if (restored > 0) Log(string.Format("ドライバー名を復元: {0} セッション", restored));
                 ShowResult();
+                Log(string.Format("所要時間: 解析 {0} ms / 表示 {1} ms", msCalc, swAll.ElapsedMilliseconds - msCalc));
+                if (focusT.HasValue) ScrollToTime(focusT.Value);
             }
             catch (Exception ex)
             {
@@ -200,11 +287,207 @@ namespace Tk2Gui
             return v;
         }
 
+
+
+        // ================= 周回の比較再生 =================
+
+        readonly Dictionary<string, List<GpsSample>> _gps = new Dictionary<string, List<GpsSample>>(StringComparer.OrdinalIgnoreCase);   // 読み込んだログ (再生のたびに読み直さない)
+
+        // 周回表で選んだ周回 (複数可) を、コースの上で同時に走らせて比較する
+        async void Replay_Click(object sender, RoutedEventArgs e)
+        {
+            if (_busy) return;
+            if (_readOnly)
+            {
+                MessageBox.Show(this, "CSV を表示しているときは、ログがないので再生できません。ログとコース定義から「解析する」を押してください。", "再生できません", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (_res == null || _def == null) return;
+            List<LapRow> rows = LapGrid.SelectedItems.Cast<LapRow>().Where(r => r.Rec != null && r.Sess != null && !string.IsNullOrEmpty(r.Sess.FilePath)).ToList();
+            List<LapRow> ok = rows.Where(r => r.Rec.Type == LapType.Normal && r.Rec.Valid && r.Rec.LapTime.HasValue).ToList();
+            if (ok.Count == 0)
+            {
+                MessageBox.Show(this, "再生する周回を、周回表で選んでください (Ctrl や Shift を押しながらクリックで複数選択)。\nOUT・未完・無効 (×) の周回は、コントロールラインから始まらないので再生できません。", "周回を選んでください", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            int max = ReplayWindow.Palette.Length;
+            if (ok.Count > max) { Log(string.Format("再生は最大 {0} 周までです。選んだ順の先頭 {0} 周を再生します", max)); ok = ok.Take(max).ToList(); }
+            if (rows.Count > ok.Count && rows.Count <= max) Log(string.Format("OUT・未完・無効の周回 {0} 周は再生しません", rows.Count - ok.Count));
+
+            CourseDefinition def = _def;
+            _busy = true; UpdateButtons();
+            InfoText.Text = "再生の準備中...";
+            try
+            {
+                List<ReplayLap> laps = await Task.Run(() =>
+                {
+                    List<ReplayLap> list = new List<ReplayLap>();
+                    int ci = 0;
+                    foreach (LapRow r in ok)
+                    {
+                        string path = r.Sess.FilePath;
+                        List<GpsSample> g;
+                        lock (_gps)
+                        {
+                            if (!_gps.TryGetValue(path, out g)) { g = GpsLoader.Load(path); _gps[path] = g; }
+                        }
+                        string drv = r.Sess.Driver ?? "";
+                        string name = "Session " + r.Sess.No + " / Lap " + r.Rec.LapNo + (drv.Length > 0 ? "  (" + drv + ")" : "");
+                        string label = "S" + r.Sess.No + "-L" + r.Rec.LapNo + (drv.Length > 0 ? " " + drv : "");
+                        list.Add(ReplayLap.Build(name, label, r.Rec.StartT, r.Rec.LapTime.Value, g, def.Lat0, def.Lon0, ReplayWindow.Palette[ci++]));
+                    }
+                    return list;
+                });
+                ReplayWindow w = new ReplayWindow(def, laps);
+                w.Owner = this;
+                w.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "再生できませんでした", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                _busy = false; UpdateButtons();
+                if (_res != null) ShowInfoOnly();
+            }
+        }
+
+        // 解析結果の要約行を、元の表示に戻す
+        void ShowInfoOnly()
+        {
+            string best = (_res.BestLap.HasValue ? "全体のベスト " + LapAnalyzer.FormatTime(_res.BestLap) : "ベストラップなし")
+                + (_res.BestMaxKmh.HasValue ? " / 最高速 " + _res.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "");
+            InfoText.Foreground = Brushes.DarkGreen;
+            InfoText.Text = string.Format(Inv, "{0} セッション / {1} 周 / {2}", _res.Sessions.Count, _res.Sessions.Sum(s => s.FullLaps), best);
+            if (_readOnly) InfoText.Text += "   [CSV 表示中・読み取り専用]";
+        }
+
+        // ================= セッションの編集 (分割・結合) =================
+
+        // 手動のセッション編集 (ログごと)。キー = SessionEdits.Key(パス)。解析のときに保存ファイルから読む
+        readonly Dictionary<string, SessionEdits> _edits = new Dictionary<string, SessionEdits>();
+
+        // 右クリックした行を選択する (メニューはその行が対象)
+        void LapGrid_PreviewRightDown(object sender, MouseButtonEventArgs e)
+        {
+            DependencyObject d = e.OriginalSource as DependencyObject;
+            while (d != null && !(d is DataGridRow)) d = VisualTreeHelper.GetParent(d);
+            DataGridRow row = d as DataGridRow;
+            if (row != null && !row.IsSelected) LapGrid.SelectedItem = row.Item;   // すでに選んだ行の上なら、複数選択をそのまま残す
+        }
+
+        // 結合できるか: 同じログの直前のセッションがあるときだけ
+        SessionRecord PreviousSessionInSameLog(SessionRecord s)
+        {
+            if (_res == null || s == null || string.IsNullOrEmpty(s.FilePath)) return null;
+            int i = _res.Sessions.IndexOf(s);
+            if (i <= 0) return null;
+            SessionRecord p = _res.Sessions[i - 1];
+            return string.Equals(p.FilePath, s.FilePath, StringComparison.OrdinalIgnoreCase) ? p : null;
+        }
+
+        void LapMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            LapRow r = LapGrid.SelectedItem as LapRow;
+            SessionRecord s = r == null ? null : r.Sess;
+            bool canSplit = r != null && !r.IsHeader && r.Rec != null && s != null && s.Laps.IndexOf(r.Rec) > 0 && !string.IsNullOrEmpty(s.FilePath);
+            SessionRecord prev = PreviousSessionInSameLog(s);
+            if (_readOnly) { canSplit = false; prev = null; }
+            SplitItem.IsEnabled = canSplit;
+            SplitItem.Header = canSplit ? "この周回 (" + r.Lap + ") の前でセッションを分割" : "この周回の前でセッションを分割 (周回の行を右クリック)";
+            MergeItem.IsEnabled = prev != null;
+            MergeItem.Header = prev != null ? "Session " + s.No + " を Session " + prev.No + " と結合" : "前のセッションと結合 (対象の行を右クリック)";
+            ResetEditsItem.IsEnabled = !_readOnly && s != null && _edits.ContainsKey(SessionEdits.Key(s.FilePath ?? "")) && !_edits[SessionEdits.Key(s.FilePath)].IsEmpty;
+        }
+
+        void Split_Click(object sender, RoutedEventArgs e)
+        {
+            LapRow r = LapGrid.SelectedItem as LapRow;
+            if (r == null || r.Rec == null || r.Sess == null || string.IsNullOrEmpty(r.Sess.FilePath)) return;
+            SessionEdits ed = EditsOf(r.Sess.FilePath);
+            double t = Math.Round(r.Rec.StartT, 3);
+            ed.Merges.RemoveAll(m => SessionEdits.Near(m, t));      // 結合してあったところを分割したら、結合の指定は外す
+            if (!ed.HasSplitAt(t)) ed.Splits.Add(t);
+            ApplyEdit(r.Sess.FilePath, ed, t);
+        }
+
+        void Merge_Click(object sender, RoutedEventArgs e)
+        {
+            LapRow r = LapGrid.SelectedItem as LapRow;
+            SessionRecord s = r == null ? null : r.Sess;
+            SessionRecord prev = PreviousSessionInSameLog(s);
+            if (prev == null) return;
+            SessionEdits ed = EditsOf(s.FilePath);
+            double t = Math.Round(s.StartT, 3);
+            // 手動で分割したところなら、その分割を取り消す。自動 (停止の判定) で分かれたところなら、結合を指定する
+            if (ed.Splits.RemoveAll(x => SessionEdits.Near(x, t)) == 0 && !ed.HasMergeAt(t)) ed.Merges.Add(t);
+            ApplyEdit(s.FilePath, ed, prev.StartT);
+        }
+
+        void ResetEdits_Click(object sender, RoutedEventArgs e)
+        {
+            LapRow r = LapGrid.SelectedItem as LapRow;
+            SessionRecord s = r == null ? null : r.Sess;
+            if (s == null || string.IsNullOrEmpty(s.FilePath)) return;
+            if (MessageBox.Show(this, System.IO.Path.GetFileName(s.FilePath) + " のセッションの分割・結合の編集を、すべて取り消しますか?", "編集を取り消す",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            SessionEdits ed = EditsOf(s.FilePath);
+            ed.Splits.Clear(); ed.Merges.Clear();
+            ApplyEdit(s.FilePath, ed, s.StartT);
+        }
+
+        SessionEdits EditsOf(string path)
+        {
+            string key = SessionEdits.Key(path);
+            SessionEdits ed;
+            if (!_edits.TryGetValue(key, out ed)) { ed = new SessionEdits(); _edits[key] = ed; }
+            return ed;
+        }
+
+        // 編集を保存して (裏で順番に)、再解析する。再解析のあと、focusT のあたりの行を見える位置にする
+        void ApplyEdit(string path, SessionEdits ed, double focusT)
+        {
+            if (_busy) return;
+            SessionEdits copy = new SessionEdits { Splits = new List<double>(ed.Splits), Merges = new List<double>(ed.Merges) };
+            _saveChain = _saveChain.ContinueWith(_ => SessionEditStore.Save(path, copy));
+            Log(string.Format("セッションを編集: {0} (分割 {1} 件 / 結合 {2} 件)", System.IO.Path.GetFileName(path), ed.Splits.Count, ed.Merges.Count));
+            var _ignored = RunAnalysisAsync(focusT);
+        }
+
+        void ScrollToTime(double t)
+        {
+            List<LapRow> list = LapGrid.ItemsSource as List<LapRow>;
+            if (list == null) return;
+            LapRow target = list.FirstOrDefault(x => x.Rec != null && Math.Abs(x.Rec.StartT - t) < 0.5)
+                            ?? list.FirstOrDefault(x => x.IsHeader && x.Sess != null && Math.Abs(x.Sess.StartT - t) < 0.5);
+            if (target != null) { LapGrid.SelectedItem = target; LapGrid.ScrollIntoView(target); }
+        }
+
         // ================= 結果表示 =================
 
         static string Clock(double t)
         {
             return new DateTime(2000, 1, 1).AddSeconds(t + JstOffsetHours * 3600).ToString("HH:mm:ss", Inv);
+        }
+
+        // 周回表の列を作る。★・※の付いた値は太字にする (key = 太さの判定に使う項目)
+        static DataGridTextColumn MarkCol(string header, string path, string key, double width)
+        {
+            Style st = new Style(typeof(TextBlock));
+            st.Setters.Add(new Setter(TextBlock.FontWeightProperty,
+                new System.Windows.Data.Binding(".") { Converter = new MarkWeightConverter(), ConverterParameter = key }));
+            st.Setters.Add(new Setter(TextBlock.ForegroundProperty,
+                new System.Windows.Data.Binding(".") { Converter = new MarkBrushConverter(), ConverterParameter = key }));
+            // 選択中の行は青い背景なので、赤は読みにくい: 白にする
+            DataTrigger sel = new DataTrigger
+            {
+                Binding = new System.Windows.Data.Binding("IsSelected") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(DataGridCell), 1) },
+                Value = true
+            };
+            sel.Setters.Add(new Setter(TextBlock.ForegroundProperty, Brushes.White));
+            st.Triggers.Add(sel);
+            return new DataGridTextColumn { Header = header, Binding = new System.Windows.Data.Binding(path), Width = width, ElementStyle = st };
         }
 
         void ShowResult()
@@ -215,14 +498,9 @@ namespace Tk2Gui
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "Lap", Binding = new System.Windows.Data.Binding("Lap"), Width = 118 });
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "開始", Binding = new System.Windows.Data.Binding("Start"), Width = 70 });
             for (int k = 0; k < _res.SectorNames.Length; k++)
-                LapGrid.Columns.Add(new DataGridTextColumn
-                {
-                    Header = _res.SectorNames[k],
-                    Binding = new System.Windows.Data.Binding("Sectors[" + k.ToString(Inv) + "]"),
-                    Width = 72
-                });
-            LapGrid.Columns.Add(new DataGridTextColumn { Header = "ラップ", Binding = new System.Windows.Data.Binding("LapTime"), Width = 90 });
-            LapGrid.Columns.Add(new DataGridTextColumn { Header = "最高 km/h", Binding = new System.Windows.Data.Binding("MaxKmh"), Width = 80 });
+                LapGrid.Columns.Add(MarkCol(_res.SectorNames[k], "Sectors[" + k.ToString(Inv) + "]", "S" + k.ToString(Inv), 72));
+            LapGrid.Columns.Add(MarkCol("ラップ", "LapTime", "LapTime", 90));
+            LapGrid.Columns.Add(MarkCol("最高 km/h", "MaxKmh", "MaxKmh", 80));
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "備考", Binding = new System.Windows.Data.Binding("Note"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
 
             List<SessionRow> rows = new List<SessionRow>();
@@ -235,7 +513,8 @@ namespace Tk2Gui
                     Range = Clock(s.StartT) + " ～ " + Clock(s.EndT),
                     Best = s.BestLap.HasValue ? LapAnalyzer.FormatTime(s.BestLap) : "-",
                     BestMax = s.BestMaxKmh.HasValue ? s.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "-",
-                    StartKind = first == null ? "" : first.Type == LapType.Out ? (first.StartGate == 0 ? "OUT (停止から発進)" : "OUT (Sector" + first.StartGate + " から計測)") : "走行中から"
+                    StartKind = (first == null ? "" : first.Type == LapType.Out ? (first.StartGate == 0 ? "OUT (停止から発進)" : "OUT (Sector" + first.StartGate + " から計測)") : "走行中から")
+                        + (s.EditNote.Length > 0 ? "  [" + s.EditNote + "]" : "")
                 });
             }
             _collapsed.Clear();
@@ -295,10 +574,11 @@ namespace Tk2Gui
             RefreshLaps();
         }
 
-        LapRow ToRow(LapRecord l)
+        LapRow ToRow(LapRecord l, SessionRecord sess)
         {
             LapRow r = new LapRow
             {
+                Sess = sess, Rec = l,
                 Session = l.Session.ToString(Inv),
                 Lap = l.Label,
                 Start = Clock(l.StartT),
@@ -326,13 +606,13 @@ namespace Tk2Gui
                 foreach (SessionRecord s in _res.Sessions)
                 {
                     list.Add(Header(s));
-                    if (!_collapsed.Contains(s.No)) list.AddRange(s.Laps.Select(ToRow));
+                    if (!_collapsed.Contains(s.No)) list.AddRange(s.Laps.Select(l => ToRow(l, s)));
                 }
             }
             else
             {
                 SessionRow sel = SessionGrid.SelectedItem as SessionRow;
-                if (sel != null) list.AddRange(sel.Rec.Laps.Select(ToRow));
+                if (sel != null) list.AddRange(sel.Rec.Laps.Select(l => ToRow(l, sel.Rec)));
             }
             LapGrid.ItemsSource = list;
         }
@@ -344,6 +624,7 @@ namespace Tk2Gui
                 IsHeader = true,
                 Session = "",
                 SessionNo = s.No,
+                Sess = s,
                 Lap = (_collapsed.Contains(s.No) ? "▶ " : "▼ ") + "Session " + s.No,
                 Start = "",
                 Sectors = new string[_res.SectorNames.Length],
@@ -355,8 +636,9 @@ namespace Tk2Gui
 
         string HeaderNote(SessionRecord s)
         {
-            return string.Format("{0}{1} ～ {2}  {5} 周  ベスト {3}  最高速 {4}", s.Driver.Length > 0 ? "ドライバー: " + s.Driver + "   " : "", Clock(s.StartT), Clock(s.EndT),
-                s.BestLap.HasValue ? LapAnalyzer.FormatTime(s.BestLap) : "-", s.BestMaxKmh.HasValue ? s.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "-", s.FullLaps);
+            return string.Format("{0}{1} ～ {2}  {5} 周  ベスト {3}  最高速 {4}{6}", s.Driver.Length > 0 ? "ドライバー: " + s.Driver + "   " : "", Clock(s.StartT), Clock(s.EndT),
+                s.BestLap.HasValue ? LapAnalyzer.FormatTime(s.BestLap) : "-", s.BestMaxKmh.HasValue ? s.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "-", s.FullLaps,
+                s.EditNote.Length > 0 ? "  [" + s.EditNote + "]" : "");
         }
 
         // 区切り行の備考 (ドライバー名を含む) だけを、現在の名前で書き換える
