@@ -108,6 +108,7 @@ namespace Tk2Gui
         public LapWindow(CourseDefinition def, string courseLabel, IEnumerable<string> logs)
         {
             InitializeComponent();
+            Title += "  " + App.VersionText;
             if (def != null) SetCourse(def, courseLabel);
             if (logs != null)
                 foreach (string f in logs) AddFile(f);

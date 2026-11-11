@@ -23,6 +23,7 @@ namespace Tk2Gui
         public MainWindow()
         {
             InitializeComponent();
+            Title += "  " + App.VersionText;
             FileGrid.ItemsSource = _items;
             _items.CollectionChanged += (s, e) => UpdateState();
             ApplyIniToUi();

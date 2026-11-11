@@ -31,5 +31,10 @@ TimeMachineX で変換すると日付が約19.7年（1024週）ずれる問題�
 - コンソール版: `.tk2` ファイルまたはフォルダを `tk2nmea.exe` にドラッグ＆ドロップ。詳細は [docs/USAGE.txt](docs/USAGE.txt)、
 ファイル形式の解析は [docs/tk2_format_spec.md](docs/tk2_format_spec.md) を参照してください。
 
+## バージョン
+WPF 版は `Major.Minor.Build.Revision`（例: `v1.1.0.2`）。各ウィンドウのタイトルに表示します。
+Major.Minor.Build は `gui/Tk2ConverterGui.csproj` の `VersionMajorMinorBuild` で手で管理し、Revision はビルドのたびに 1 つ増えます（`gui/revision.txt`）。
+リリースには Git のタグ（`v1.1.0` など）を付けます。
+
 ## ライセンス
 MIT License

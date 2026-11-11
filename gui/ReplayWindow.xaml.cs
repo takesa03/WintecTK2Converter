@@ -182,7 +182,7 @@ namespace Tk2Gui
             foreach (ReplayLap l in laps) RefCombo.Items.Add(l.Name);
             RefCombo.SelectedIndex = _ref;
             BuildLegend();
-            Title = "周回の比較再生 - " + def.Name + " (" + laps.Count + " 周)";
+            Title = "周回の比較再生 - " + def.Name + " (" + laps.Count + " 周)  " + App.VersionText;
             Loaded += (s, e) => { System.Windows.Media.CompositionTarget.Rendering += OnRender; Redraw(); };
             Closed += (s, e) => System.Windows.Media.CompositionTarget.Rendering -= OnRender;
             _last = DateTime.Now;

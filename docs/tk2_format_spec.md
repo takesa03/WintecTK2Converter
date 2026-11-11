@@ -62,6 +62,7 @@ NMEA規格では GPRMC の日付はUTCなので正しくは 250926。
 ## WPF 版 (gui/)
 - `gui\Tk2ConverterGui.csproj`（net10.0-windows, WPF）。変換ロジックは `tk2nmea.cs` をリンクして共用（コンソール版と出力は同一）。
 - 入口は `Tk2Gui.App`（csproj の StartupObject）。`tk2nmea.cs` 側の `Main` はコンソール版用。
+- バージョン（WPF 版）: `Major.Minor.Build.Revision`。Major.Minor.Build は `Tk2ConverterGui.csproj` の `VersionMajorMinorBuild`（手で管理）、Revision はビルドのたびに 1 つ増やして `gui/revision.txt` に保存（MSBuild の `IncrementRevision` ターゲット。WPF の一時プロジェクト `*_wpftmp` では増やさない）。`AssemblyVersion` / `FileVersion` / `InformationalVersion` に入れ、各ウィンドウのタイトルに `v1.1.0.2` のように表示（`App.VersionText`）。`dotnet publish` もビルドなので Revision が進む。リリースは Git のタグ `v1.1.0` など。1.1.0 は 2026-11-12 に開始（それまでは 1.0.0 のまま上げていなかった）。
 - GUI から使う `tk2nmea.cs` のメンバーは `internal`: `LoadIni` / `LoadTrack` / `TryParseLocal` / `ConvertFile` / `Collect` / `SummaryLines`（停止区間の要約を文字列で返す。`PrintSummary` はそれを表示するだけ）。
 - 設定は ini → 画面の値の順で適用（画面にある項目: 出力先 / googleearth / localdate / altitude / tour / weeks）。カット時刻は `Options.Start` / `End` に渡し、`NoPause=true` で対話入力を避ける。
 - `build_gui.bat` → `gui\publish\WintecTK2Converter.exe`（ini も同梱）。コマンドライン引数のファイル・フォルダは起動時に一覧へ追加する。

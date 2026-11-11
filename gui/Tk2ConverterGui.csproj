@@ -8,7 +8,6 @@
     <AssemblyName>WintecTK2Converter</AssemblyName>
     <RootNamespace>Tk2Gui</RootNamespace>
     <Title>Wintec TK2 変換ツール</Title>
-    <Version>1.0.0</Version>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -21,5 +20,29 @@
     <!-- 既定設定 (コンソール版と共通)。exe と同じフォルダにコピーされる -->
     <None Include="..\tk2nmea.ini" Link="tk2nmea.ini" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- バージョン: Major.Minor.Build はここを直接編集して手動で管理する。リビジョン (4 桁目) はビルドのたびに 1 つ増やす (revision.txt)。
+       WPF の XAML コンパイル用の一時プロジェクト (*_wpftmp.csproj) でも走って二重に増えるため、本体のときだけ実行する -->
+  <PropertyGroup>
+    <VersionMajorMinorBuild>1.1.0</VersionMajorMinorBuild>
+    <RevisionFile>$(MSBuildProjectDirectory)\revision.txt</RevisionFile>
+  </PropertyGroup>
+
+  <Target Name="IncrementRevision" BeforeTargets="BeforeBuild" Condition="!$(MSBuildProjectName.EndsWith('_wpftmp'))">
+    <ReadLinesFromFile File="$(RevisionFile)" Condition="Exists('$(RevisionFile)')">
+      <Output TaskParameter="Lines" ItemName="RevisionLines" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <CurrentRevision Condition="'@(RevisionLines)' != ''">@(RevisionLines)</CurrentRevision>
+      <CurrentRevision Condition="'$(CurrentRevision)' == ''">0</CurrentRevision>
+      <NewRevision>$([MSBuild]::Add($(CurrentRevision), 1))</NewRevision>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(RevisionFile)" Lines="$(NewRevision)" Overwrite="true" />
+    <PropertyGroup>
+      <AssemblyVersion>$(VersionMajorMinorBuild).$(NewRevision)</AssemblyVersion>
+      <FileVersion>$(VersionMajorMinorBuild).$(NewRevision)</FileVersion>
+      <InformationalVersion>$(VersionMajorMinorBuild).$(NewRevision)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
 
 </Project>

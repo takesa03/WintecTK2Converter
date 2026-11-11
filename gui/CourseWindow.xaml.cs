@@ -26,6 +26,7 @@ namespace Tk2Gui
         public CourseWindow(IEnumerable<string> initialFiles)
         {
             InitializeComponent();
+            Title += "  " + App.VersionText;
             if (initialFiles != null)
                 foreach (string f in initialFiles) AddFile(f);
         }
