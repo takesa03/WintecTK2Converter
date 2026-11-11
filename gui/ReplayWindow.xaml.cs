@@ -1,10 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 
 namespace Tk2Gui
@@ -135,6 +140,25 @@ namespace Tk2Gui
         TextBlock[] _tLap, _tSpeed, _tGap;
         Polyline[] _traces;
         int _ref;
+        // 地図の描き方: コース・ライン・軌跡は実際の位置 (m) で 1 枚の層に一度だけ描き、拡大・移動は表示の変換だけで行う
+        Canvas _world;
+        MatrixTransform _xf;
+        readonly List<Shape> _pxShapes = new List<Shape>();      // 画面上で一定の太さにする線 (Tag = 太さ [px])
+        Polyline _road;
+        TextBlock[] _gateLabels; Point[] _gateLabelAt;
+        Line _scaleBar; TextBlock _scaleText;
+        double _fitScale, _fitOx, _fitOy, _appliedScale;
+        bool _follow;                                             // 基準の周回の自車位置を中心に拡大する
+        double _zoomWidthM = 120;                                 // 拡大表示のときの、画面の横幅に入る距離 [m]
+        const double RoadWidthM = 10;                             // 路面の幅の目安 [m]
+        // 背景の航空写真 (国土地理院の地理院タイル「全国最新写真 (シームレス)」)
+        Canvas _photo;
+        readonly Dictionary<string, Image> _tiles = new Dictionary<string, Image>();
+        int _tileZ = -1;
+        static readonly HttpClient Http = MakeHttp();
+        static readonly SemaphoreSlim Downloads = new SemaphoreSlim(4);
+        const string TileUrl = "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{0}/{1}/{2}.jpg";
+        static readonly string TileCache = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WintecTK2Converter", "tiles", "seamlessphoto");
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
         public static readonly Color[] Palette =
@@ -190,54 +214,73 @@ namespace Tk2Gui
         // ---------------- 地図 ----------------
 
         Point ToScreen(double x, double y) { return new Point(_cx + (x - _ox) * _scale, _cy - (y - _oy) * _scale); }
+        static Point W(double x, double y) { return new Point(x, -y); }       // 層の座標 (北が上なので y を反転)
+
+        Shape Px(Shape sh, double px) { sh.Tag = px; _pxShapes.Add(sh); return sh; }
 
         void Redraw()
         {
             double w = MapCanvas.ActualWidth, h = MapCanvas.ActualHeight;
             if (w < 50 || h < 50) return;
             MapCanvas.Children.Clear();
-            // 範囲 (中心線と、すべての周回の位置)
+            _pxShapes.Clear();
+            _appliedScale = 0;
+            _cx = w / 2; _cy = h / 2;
+
+            // 全体表示の範囲 (中心線と、すべての周回の位置)
             double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
             Action<double, double> grow = (x, y) => { minX = Math.Min(minX, x); maxX = Math.Max(maxX, x); minY = Math.Min(minY, y); maxY = Math.Max(maxY, y); };
             foreach (LatLon p in _def.Centerline) grow((p.Lon - _lon0) * _kx, (p.Lat - _lat0) * _ky);
             foreach (ReplayLap l in _laps) for (int i = 0; i < l.X.Length; i += 10) grow(l.X[i], l.Y[i]);
             double spanX = Math.Max(1, maxX - minX), spanY = Math.Max(1, maxY - minY);
             const double margin = 40;
-            _scale = Math.Min((w - 2 * margin) / spanX, (h - 2 * margin) / spanY);
-            _ox = (minX + maxX) / 2; _oy = (minY + maxY) / 2; _cx = w / 2; _cy = h / 2;
+            _fitScale = Math.Min((w - 2 * margin) / spanX, (h - 2 * margin) / spanY);
+            _fitOx = (minX + maxX) / 2; _fitOy = (minY + maxY) / 2;
 
-            // 路面 (中心線を太く)
+            _world = new Canvas();
+            _xf = new MatrixTransform();
+            _world.RenderTransform = _xf;
+            MapCanvas.Children.Add(_world);
+            _photo = new Canvas();
+            _world.Children.Add(_photo);
+            _tiles.Clear(); _tileZ = -1;
+
+            // 路面 (中心線を太く) と、中心の破線
             PointCollection road = new PointCollection();
-            foreach (LatLon p in _def.Centerline) road.Add(ToScreen((p.Lon - _lon0) * _kx, (p.Lat - _lat0) * _ky));
+            foreach (LatLon p in _def.Centerline) road.Add(W((p.Lon - _lon0) * _kx, (p.Lat - _lat0) * _ky));
             if (road.Count > 0) road.Add(road[0]);
-            MapCanvas.Children.Add(new Polyline { Points = road, Stroke = new SolidColorBrush(Color.FromRgb(0x3A, 0x40, 0x4A)), StrokeThickness = Math.Max(8, 9 * _scale), StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
-            MapCanvas.Children.Add(new Polyline { Points = road, Stroke = new SolidColorBrush(Color.FromRgb(0x5A, 0x62, 0x70)), StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 4, 4 } });
+            _road = new Polyline { Points = road, Stroke = new SolidColorBrush(Color.FromRgb(0x3A, 0x40, 0x4A)), StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
+            _world.Children.Add(_road);
+            _world.Children.Add(Px(new Polyline { Points = road, Stroke = new SolidColorBrush(Color.FromRgb(0x5A, 0x62, 0x70)), StrokeDashArray = new DoubleCollection { 4, 4 } }, 1));
 
-            // ライン (コントロール = 白, セクター = 黄)
-            for (int k = 0; k < _def.Gates.Count; k++)
+            // ライン (コントロール = 白, セクター = 黄)。名前は画面の上に、一定の大きさで出す
+            int ng = _def.Gates.Count;
+            _gateLabels = new TextBlock[ng]; _gateLabelAt = new Point[ng];
+            for (int k = 0; k < ng; k++)
             {
                 Gate g = _def.Gates[k];
-                Point a = ToScreen((g.A.Lon - _lon0) * _kx, (g.A.Lat - _lat0) * _ky), b = ToScreen((g.B.Lon - _lon0) * _kx, (g.B.Lat - _lat0) * _ky);
+                double ax = (g.A.Lon - _lon0) * _kx, ay = (g.A.Lat - _lat0) * _ky, bx = (g.B.Lon - _lon0) * _kx, by = (g.B.Lat - _lat0) * _ky;
                 Brush c = k == 0 ? Brushes.White : new SolidColorBrush(Color.FromRgb(0xFF, 0xD2, 0x3F));
-                MapCanvas.Children.Add(new Line { X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y, Stroke = c, StrokeThickness = k == 0 ? 3 : 2 });
-                TextBlock tb = new TextBlock { Text = k == 0 ? "Control" : "S" + k, Foreground = c, FontSize = 11 };
-                Canvas.SetLeft(tb, b.X + 3); Canvas.SetTop(tb, b.Y - 8);
-                MapCanvas.Children.Add(tb);
+                Point a = W(ax, ay), b = W(bx, by);
+                _world.Children.Add(Px(new Line { X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y, Stroke = c }, k == 0 ? 3 : 2));
+                _gateLabels[k] = new TextBlock { Text = k == 0 ? "Control" : "S" + k, Foreground = c, FontSize = 11 };
+                _gateLabelAt[k] = new Point(bx, by);
+                MapCanvas.Children.Add(_gateLabels[k]);
             }
 
-            // 軌跡
+            // 軌跡 (拡大したときに走行ラインの違いが分かるように、点を間引きすぎない)
             _traces = new Polyline[_laps.Count];
             for (int i = 0; i < _laps.Count; i++)
             {
                 ReplayLap l = _laps[i];
                 PointCollection pc = new PointCollection();
-                for (int j = 0; j < l.X.Length; j += 4) pc.Add(ToScreen(l.X[j], l.Y[j]));
-                Color c = l.Color; c.A = 110;
-                _traces[i] = new Polyline { Points = pc, Stroke = new SolidColorBrush(c), StrokeThickness = 1.5, Visibility = TraceCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed };
-                MapCanvas.Children.Add(_traces[i]);
+                for (int j = 0; j < l.X.Length; j += 2) pc.Add(W(l.X[j], l.Y[j]));
+                _traces[i] = new Polyline { Points = pc, Stroke = new SolidColorBrush(l.Color), StrokeLineJoin = PenLineJoin.Round,
+                    Visibility = TraceCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed };
+                _world.Children.Add(Px(_traces[i], 1.5));
             }
 
-            // 走行位置の丸と名前
+            // 走行位置の丸と名前 (画面の上に、一定の大きさで出す)
             _dots = new Ellipse[_laps.Count]; _labels = new TextBlock[_laps.Count];
             for (int i = 0; i < _laps.Count; i++)
             {
@@ -246,12 +289,158 @@ namespace Tk2Gui
                     Visibility = LabelCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed };
                 MapCanvas.Children.Add(_dots[i]); MapCanvas.Children.Add(_labels[i]);
             }
+
+            // 縮尺 (拡大表示のときだけ)
+            _scaleBar = new Line { Stroke = Brushes.White, StrokeThickness = 3 };
+            _scaleText = new TextBlock { Foreground = Brushes.White, FontSize = 12 };
+            MapCanvas.Children.Add(_scaleBar); MapCanvas.Children.Add(_scaleText);
             UpdateFrame();
+        }
+
+        // 表示の位置と拡大率を決める (拡大表示では、毎フレーム基準の周回の位置を中心にする)
+        void SetView()
+        {
+            if (_xf == null) return;
+            double w = MapCanvas.ActualWidth, h = MapCanvas.ActualHeight;
+            if (_follow)
+            {
+                ReplayLap rf = _laps[_ref];
+                double x, y; rf.PosAt(Math.Min(_t, rf.LapTime), out x, out y);
+                _scale = w / _zoomWidthM; _ox = x; _oy = y;
+            }
+            else { _scale = _fitScale; _ox = _fitOx; _oy = _fitOy; }
+            _xf.Matrix = new Matrix(_scale, 0, 0, _scale, _cx - _ox * _scale, _cy + _oy * _scale);
+
+            if (Math.Abs(_scale - _appliedScale) > 1e-9)
+            {
+                // 拡大率が変わったら、線の太さを画面上で一定にする (路面は実際の幅、ただし細くなりすぎない)
+                foreach (Shape sh in _pxShapes) sh.StrokeThickness = (double)sh.Tag / _scale;
+                _road.StrokeThickness = Math.Max(RoadWidthM, 8 / _scale);
+                bool photo = PhotoCheck.IsChecked == true;   // 写真の上では、全体表示でも軌跡を濃く・太めにする (見えにくいため)
+                foreach (Polyline p in _traces)
+                {
+                    p.StrokeThickness = (_follow ? 2.5 : photo ? 2 : 1.5) / _scale;
+                    p.Opacity = _follow || photo ? 0.9 : 0.45;
+                }
+                _appliedScale = _scale;
+                UpdateScaleBar(w, h);
+            }
+            for (int k = 0; k < _gateLabels.Length; k++)
+            {
+                Point q = ToScreen(_gateLabelAt[k].X, _gateLabelAt[k].Y);
+                Canvas.SetLeft(_gateLabels[k], q.X + 3); Canvas.SetTop(_gateLabels[k], q.Y - 8);
+            }
+            EnsureTiles(w, h);
+        }
+
+        // ---------------- 航空写真 (地理院タイル) ----------------
+
+        static HttpClient MakeHttp()
+        {
+            HttpClient c = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("WintecTK2Converter/1.0");
+            return c;
+        }
+
+        static int TileX(double lon, int z) { return (int)Math.Floor((lon + 180) / 360 * (1 << z)); }
+        static int TileY(double lat, int z)
+        {
+            double r = lat * Math.PI / 180;
+            return (int)Math.Floor((1 - Math.Log(Math.Tan(r) + 1 / Math.Cos(r)) / Math.PI) / 2 * (1 << z));
+        }
+        static double TileLon(int x, int z) { return (double)x / (1 << z) * 360 - 180; }
+        static double TileLat(int y, int z) { return Math.Atan(Math.Sinh(Math.PI * (1 - 2.0 * y / (1 << z)))) * 180 / Math.PI; }
+
+        // いま見えている範囲の写真を並べる (足りないものだけ読み込む)。拡大率に合う解像度 (ズームレベル) を選ぶ
+        void EnsureTiles(double w, double h)
+        {
+            if (_photo == null) return;
+            bool on = PhotoCheck.IsChecked == true;
+            _photo.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            _road.Visibility = on ? Visibility.Collapsed : Visibility.Visible;     // 写真のときは、写真のコースをそのまま見せる
+            PhotoCredit.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            if (!on) return;
+
+            double latC = _lat0 + _oy / _ky;
+            double mpp = 1 / _scale;                                               // 画面の 1 px が何 m か
+            int z = (int)Math.Round(Math.Log(156543.034 * Math.Cos(latC * Math.PI / 180) / mpp, 2));
+            z = Math.Max(10, Math.Min(18, z));
+            if (z != _tileZ) { _photo.Children.Clear(); _tiles.Clear(); _tileZ = z; }
+
+            double x0 = _ox - _cx / _scale, x1 = _ox + (w - _cx) / _scale;
+            double y0 = _oy - (h - _cy) / _scale, y1 = _oy + _cy / _scale;
+            int tx0 = TileX(_lon0 + x0 / _kx, z), tx1 = TileX(_lon0 + x1 / _kx, z);
+            int ty0 = TileY(_lat0 + y1 / _ky, z), ty1 = TileY(_lat0 + y0 / _ky, z);
+            if ((long)(tx1 - tx0 + 1) * (ty1 - ty0 + 1) > 300) return;            // 念のため (広すぎる範囲は読まない)
+            for (int tx = tx0; tx <= tx1; tx++)
+                for (int ty = ty0; ty <= ty1; ty++)
+                {
+                    string key = z + "/" + tx + "/" + ty;
+                    if (_tiles.ContainsKey(key)) continue;
+                    double xl = (TileLon(tx, z) - _lon0) * _kx, xr = (TileLon(tx + 1, z) - _lon0) * _kx;
+                    double yt = (TileLat(ty, z) - _lat0) * _ky, yb = (TileLat(ty + 1, z) - _lat0) * _ky;
+                    double ov = (xr - xl) * 0.004;                                  // 継ぎ目に細い隙間が見えないよう、わずかに重ねる
+                    Image img = new Image { Stretch = Stretch.Fill, Width = xr - xl + ov, Height = yt - yb + ov };
+                    Canvas.SetLeft(img, xl); Canvas.SetTop(img, -yt);
+                    _photo.Children.Add(img);
+                    _tiles[key] = img;
+                    LoadTile(img, z, tx, ty);
+                }
+        }
+
+        // 写真を 1 枚読む。保存してあればそれを使い、なければ国土地理院から取ってきて保存する
+        async void LoadTile(Image img, int z, int x, int y)
+        {
+            string path = System.IO.Path.Combine(TileCache, z.ToString(Inv), x.ToString(Inv), y.ToString(Inv) + ".jpg");
+            byte[] data = null;
+            try
+            {
+                if (File.Exists(path)) data = await Task.Run(() => File.ReadAllBytes(path));
+                else
+                {
+                    await Downloads.WaitAsync();
+                    try
+                    {
+                        if (img.Parent == null) return;                              // 拡大率が変わって、もう要らない
+                        data = await Http.GetByteArrayAsync(string.Format(Inv, TileUrl, z, x, y));
+                    }
+                    finally { Downloads.Release(); }
+                    string dir = System.IO.Path.GetDirectoryName(path);
+                    byte[] d = data;
+                    await Task.Run(() => { Directory.CreateDirectory(dir); File.WriteAllBytes(path, d); });
+                }
+                BitmapImage bi = new BitmapImage();
+                bi.BeginInit();
+                bi.CacheOption = BitmapCacheOption.OnLoad;
+                bi.StreamSource = new MemoryStream(data);
+                bi.EndInit();
+                bi.Freeze();
+                img.Source = bi;
+            }
+            catch (Exception)
+            {
+                // 写真がない場所 (海など)・通信できないときは、その部分は背景なしのまま
+            }
+        }
+
+        void UpdateScaleBar(double w, double h)
+        {
+            Visibility v = _follow ? Visibility.Visible : Visibility.Collapsed;
+            _scaleBar.Visibility = v; _scaleText.Visibility = v;
+            if (!_follow) return;
+            double target = _zoomWidthM / 5, len = 1;
+            foreach (double c in new double[] { 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000 }) if (c <= target) len = c;
+            double px = len * _scale;
+            _scaleBar.X1 = 20; _scaleBar.X2 = 20 + px; _scaleBar.Y1 = _scaleBar.Y2 = h - 20;
+            _scaleText.Text = len.ToString("0", Inv) + " m";
+            Canvas.SetLeft(_scaleText, 20); Canvas.SetTop(_scaleText, h - 40);
+            ZoomText.Text = string.Format(Inv, "表示幅 {0:0} m", _zoomWidthM);
         }
 
         void UpdateFrame()
         {
             if (_dots == null) return;
+            SetView();
             ReplayLap rf = _laps[_ref];
             for (int i = 0; i < _laps.Count; i++)
             {
@@ -323,11 +512,45 @@ namespace Tk2Gui
             if (RefCombo.SelectedIndex >= 0 && _laps != null) { _ref = RefCombo.SelectedIndex; UpdateFrame(); }
         }
 
+        void Photo_Changed(object sender, RoutedEventArgs e)
+        {
+            _appliedScale = 0;   // 軌跡の濃さ・太さを直す
+            if (_xf != null) UpdateFrame();
+        }
+
         void View_Changed(object sender, RoutedEventArgs e)
         {
             if (_traces == null || _labels == null) return;
             foreach (Polyline p in _traces) p.Visibility = TraceCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
             foreach (TextBlock t in _labels) t.Visibility = LabelCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // ---------------- 表示の切り替え (全体 / 基準の周回を中心に拡大) ----------------
+
+        void ViewMode_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            _follow = ViewCombo.SelectedIndex == 1;
+            if (ZoomInButton != null) { ZoomInButton.IsEnabled = _follow; ZoomOutButton.IsEnabled = _follow; }
+            if (ZoomText != null) ZoomText.Text = _follow ? string.Format(Inv, "表示幅 {0:0} m", _zoomWidthM) : "";
+            _appliedScale = 0;
+            UpdateFrame();
+        }
+
+        void Zoom(double factor)
+        {
+            _zoomWidthM = Math.Max(20, Math.Min(3000, _zoomWidthM * factor));
+            _appliedScale = 0;
+            UpdateFrame();
+        }
+
+        void ZoomIn_Click(object sender, RoutedEventArgs e) { Zoom(1 / 1.5); }
+        void ZoomOut_Click(object sender, RoutedEventArgs e) { Zoom(1.5); }
+
+        // マウスホイール: 拡大表示のときは拡大・縮小。全体表示のときは、拡大表示に切り替える
+        void Map_MouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+        {
+            if (!_follow) { if (e.Delta > 0) ViewCombo.SelectedIndex = 1; return; }
+            Zoom(e.Delta > 0 ? 1 / 1.25 : 1.25);
         }
 
         void Map_SizeChanged(object sender, SizeChangedEventArgs e)

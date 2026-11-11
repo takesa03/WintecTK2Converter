@@ -15,9 +15,9 @@
         </Grid.ColumnDefinitions>
 
         <!-- 操作 -->
-        <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Name="PlayButton" Content="▶ 再生" Width="86" Padding="0,5" Margin="0,0,6,0" Click="Play_Click"/>
-            <Button Content="⏮ 最初から" Padding="10,5" Margin="0,0,14,0" Click="Restart_Click"/>
+        <WrapPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,4">
+            <Button Name="PlayButton" Content="▶ 再生" Width="86" Padding="0,5" Margin="0,0,6,4" Click="Play_Click"/>
+            <Button Content="⏮ 最初から" Padding="10,5" Margin="0,0,14,4" Click="Restart_Click"/>
             <TextBlock Text="速度" VerticalAlignment="Center" Margin="0,0,6,0"/>
             <ComboBox Name="SpeedCombo" Width="80" SelectedIndex="3" Margin="0,0,14,0" SelectionChanged="Speed_Changed">
                 <ComboBoxItem Content="0.1 ×" Tag="0.1"/>
@@ -30,13 +30,33 @@
             <CheckBox Name="LoopCheck" Content="繰り返す" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,0"/>
             <CheckBox Name="TraceCheck" Content="軌跡を表示" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,0" Checked="View_Changed" Unchecked="View_Changed"/>
             <CheckBox Name="LabelCheck" Content="名前を表示" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,0" Checked="View_Changed" Unchecked="View_Changed"/>
-            <TextBlock Text="基準" VerticalAlignment="Center" Margin="0,0,6,0"/>
-            <ComboBox Name="RefCombo" Width="230" SelectionChanged="Ref_Changed"/>
-        </StackPanel>
+            <CheckBox Name="PhotoCheck" Content="航空写真" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,0" Checked="Photo_Changed" Unchecked="Photo_Changed"
+                      ToolTip="背景に国土地理院の航空写真 (地理院タイル) を表示します。インターネット接続が必要です (読み込んだ写真は保存して、次回から使います)"/>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="基準" VerticalAlignment="Center" Margin="0,0,6,4"/>
+                <ComboBox Name="RefCombo" Width="210" Margin="0,0,14,4" SelectionChanged="Ref_Changed"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal">
+            <TextBlock Text="表示" VerticalAlignment="Center" Margin="0,0,6,4"/>
+            <ComboBox Name="ViewCombo" Width="180" SelectedIndex="0" Margin="0,0,6,4" SelectionChanged="ViewMode_Changed"
+                      ToolTip="基準の周回の自車位置を中心に拡大すると、走行ラインの違いが見やすくなります">
+                <ComboBoxItem Content="コース全体"/>
+                <ComboBoxItem Content="基準の周回を中心に拡大"/>
+            </ComboBox>
+            <Button Name="ZoomInButton" Content="＋" Width="32" Padding="0,3" Margin="0,0,4,4" IsEnabled="False" Click="ZoomIn_Click" ToolTip="拡大 (マウスホイールでも変えられます)"/>
+            <Button Name="ZoomOutButton" Content="－" Width="32" Padding="0,3" Margin="0,0,8,4" IsEnabled="False" Click="ZoomOut_Click" ToolTip="縮小"/>
+            <TextBlock Name="ZoomText" VerticalAlignment="Center" Margin="0,0,0,4" Foreground="Gray"/>
+            </StackPanel>
+        </WrapPanel>
 
         <!-- コースと走行 -->
         <Border Grid.Row="1" Grid.Column="0" Background="#1E2228" CornerRadius="4" ClipToBounds="True">
-            <Canvas Name="MapCanvas" SizeChanged="Map_SizeChanged" ClipToBounds="True"/>
+            <Grid>
+                <Canvas Name="MapCanvas" SizeChanged="Map_SizeChanged" ClipToBounds="True" Background="Transparent" MouseWheel="Map_MouseWheel"/>
+                <TextBlock Name="PhotoCredit" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,4" Padding="4,1" FontSize="11"
+                           Foreground="White" Background="#80000000" IsHitTestVisible="False"
+                           Text="出典: 国土地理院 (地理院タイル・全国最新写真 (シームレス))"/>
+            </Grid>
         </Border>
 
         <!-- 凡例 (名前・ラップ・速度・基準との差) -->
@@ -53,7 +73,7 @@
                 </Grid>
                 <StackPanel Name="LegendPanel"/>
                 <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0"
-                           Text="全員をコントロールラインの通過から同時に走らせます。差は、同じ地点 (周回の進み具合) に基準の周回が着いた時刻との差の目安です (＋ = 基準より遅れ、− = 基準より先)。周回の最後の差は、ラップタイムの差と一致します。"/>
+                           Text="全員をコントロールラインの通過から同時に走らせます。差は、同じ地点 (周回の進み具合) に基準の周回が着いた時刻との差の目安です (＋ = 基準より遅れ、− = 基準より先)。周回の最後の差は、ラップタイムの差と一致します。&#x0A;表示を「基準の周回を中心に拡大」にすると、基準の周回の自車位置を中心に追いかけて、走行ラインの違いを見られます (＋／－ またはマウスホイールで拡大率を変更)。"/>
             </StackPanel>
         </ScrollViewer>
 
