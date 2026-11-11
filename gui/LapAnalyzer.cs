@@ -34,7 +34,7 @@ namespace Tk2Gui
 
     public sealed class LapParams
     {
-        public double PitStopSec = 60;           // コントロールライン通過後、これ以上ラインを通らなければピットイン
+        public double PitStopSec = 60;           // これ以上止まっていたら (記録の途切れも含む) ピットインとして、セッションを分ける
         public double MinCrossSpeedKmh = 8;      // これ未満の速度での通過は無視 (停止中の GPS のふらつき)
         public double MaxGapSec = 3;             // この秒数を超えて途切れた点の間は、通過を判定しない
         public double DebounceSec = 8;           // 同じラインの通過が続けて検出されたら、この秒数内は無視
@@ -294,6 +294,11 @@ namespace Tk2Gui
             int lapNo = 0;
             bool manualStart = false;
             bool fromStop = stops.Any(st => st[0] <= logStart + 2);   // ログの最初から止まっている = 停止からの発進
+            // コントロールラインから次のラインまでの、普段の所要時間 (中央値)
+            List<double> firstSec = new List<double>();
+            for (int k = 1; k < cs.Count; k++)
+                if (cs[k - 1].Gate == 0 && cs[k].Gate == 1 % M) firstSec.Add(cs[k].T - cs[k - 1].T);
+            double pitWait = Math.Max(prm.PitStopSec, firstSec.Count >= 3 ? 2 * Median(firstSec) : 0);
             SessionEdits ed = null;
             if (prm.Edits != null && fpath != null) prm.Edits.TryGetValue(SessionEdits.Key(fpath), out ed);
 
@@ -304,7 +309,9 @@ namespace Tk2Gui
                 {
                     // 2 つの通過の間に長い停止があった = ピットイン (ドライバー交代など)
                     bool stopBetween = stops.Any(st => st[0] >= prev.T - 2 && st[0] <= c.T);
-                    bool autoSplit = stopBetween || (prev.Gate == 0 && c.T - prev.T > prm.PitStopSec);
+                    // コントロールライン通過後、なかなか次のラインを通らない = ピットイン (ピットレーンを低速で走っている間など)。
+                    // 待つ時間は「停止とみなす秒数」と「普段の所要時間の 2 倍」の大きいほう (鈴鹿のように 1 区間が長いコースで、毎周これに当たらないように)
+                    bool autoSplit = stopBetween || (prev.Gate == 0 && c.T - prev.T > pitWait);
                     // 手動の編集: 結合 (自動の分割を取りやめる) と、分割 (この通過から新しいセッションにする)
                     bool merged = autoSplit && ed != null && ed.HasMergeAt(c.T);
                     bool manualSplit = !autoSplit && ed != null && ed.Splits.Any(sp => sp > prev.T + 0.0005 && sp <= c.T + 0.005);

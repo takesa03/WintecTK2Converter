@@ -397,18 +397,29 @@ namespace Tk2Gui
             return Math.Abs(x);
         }
 
-        /// <summary>走行区間の中から、出発点が再び (後ろの線分に) 近づく最初の 1 周を取り出す。</summary>
+        /// <summary>
+        /// 走行区間の中から 1 周を取り出す。出発点が再び (後ろの線分に) 同じ向きで近づいたところまでを 1 周の候補とし、
+        /// 走行区間の中の複数の出発点で候補を作って、いちばん短いものを採用する。
+        /// (出発点がピットレーンやラインから外れた位置だと、近くに戻ってくるのが何周も先になり、
+        ///  複数周をまとめて 1 周としてしまう。鈴鹿のように道幅が広いと特に起きやすい)
+        /// </summary>
         static List<Pt> FindLoop(Data d, List<int> run)
         {
-            for (int a = 0; a < run.Count; a++)
+            List<Pt> best = null;
+            double bestLen = double.MaxValue;
+            int stride = Math.Max(1, run.Count / 60);
+            for (int a = 0; a < run.Count; a += stride)
             {
                 int ia = run[a];
-                for (int b = a + 20; b < run.Count; b++)
+                double len = 0;
+                for (int b = a + 1; b < run.Count; b++)
                 {
                     int p = run[b - 1], q = run[b];
                     double dx = d.X[q] - d.X[p], dy = d.Y[q] - d.Y[p];
                     double l2 = dx * dx + dy * dy;
-                    if (l2 <= 0) continue;
+                    len += Math.Sqrt(l2);
+                    if (len >= bestLen) break;                       // すでに見つけた候補より長くなった
+                    if (b < a + 20 || l2 <= 0 || d.T[q] - d.T[ia] < 20) continue;   // 出発直後 (20 点・20 秒以内) は見ない
                     double t = Math.Max(0, Math.Min(1, ((d.X[ia] - d.X[p]) * dx + (d.Y[ia] - d.Y[p]) * dy) / l2));
                     double dist = Math.Sqrt(Math.Pow(d.X[ia] - (d.X[p] + dx * t), 2) + Math.Pow(d.Y[ia] - (d.Y[p] + dy * t), 2));
                     double hd = (Math.Atan2(dx, dy) * 180 / Math.PI + 360) % 360;
@@ -416,11 +427,12 @@ namespace Tk2Gui
                     {
                         List<Pt> loop = new List<Pt>();
                         for (int k = a; k < b; k++) loop.Add(new Pt { X = d.X[run[k]], Y = d.Y[run[k]] });
-                        return loop;
+                        best = loop; bestLen = len;
+                        break;
                     }
                 }
             }
-            return null;
+            return best;
         }
 
         static List<Pt> ResampleClosed(List<Pt> pts, double step, out double length)
