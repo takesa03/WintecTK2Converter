@@ -77,18 +77,17 @@ namespace Tk2Gui
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) { throw new NotSupportedException(); }
     }
 
-    /// <summary>周回表のセルの文字色。★・※の付いた値を赤にする。それ以外は行の文字色 (無効な周回は赤茶、それ以外は黒)。</summary>
+    /// <summary>周回表のセルの文字色。★・※の付いた値を赤にする。それ以外は行の文字色 (無効な周回は赤茶、それ以外は明るい灰色)。</summary>
     public sealed class MarkBrushConverter : System.Windows.Data.IValueConverter
     {
-        static readonly Brush Red = Frozen(new SolidColorBrush(Color.FromRgb(0xE0, 0x00, 0x00)));
-        static Brush Frozen(SolidColorBrush b) { b.Freeze(); return b; }
+        static readonly Brush Red = Theme.Mark;
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             LapRow r = value as LapRow;
-            if (r == null) return Brushes.Black;
+            if (r == null) return Theme.Text;
             if (MarkWeightConverter.IsMarked(r, parameter as string)) return Red;
-            return r.IsInvalid ? Brushes.Firebrick : Brushes.Black;
+            return r.IsInvalid ? Theme.Error : Theme.Text;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) { throw new NotSupportedException(); }
@@ -108,18 +107,42 @@ namespace Tk2Gui
         public LapWindow(CourseDefinition def, string courseLabel, IEnumerable<string> logs)
         {
             InitializeComponent();
+            Theme.ApplyDark(this);
             Title += "  " + App.VersionText;
             if (def != null) SetCourse(def, courseLabel);
             if (logs != null)
                 foreach (string f in logs) AddFile(f);
+            // 前回の画面の設定。閉じるときに覚える
+            Settings.Binder st = new Settings.Binder("Lap");
+            st.Text(PitStopBox, "PitStop");
+            st.Text(MinSpeedBox, "MinSpeed");
+            st.Text(SlowLapBox, "SlowLap");
+            st.Check(AllCheck, "AllSessions");
+            st.Expander(SessionExp, "SessionList");
+            st.Expander(LapExp, "LapTable");
+            st.Expander(LogExp, "Log");
+            st.Custom("PanelHidden", () => LeftPanel.Visibility == Visibility.Visible ? "0" : "1",
+                      v => { if (v == "1" && LeftPanel.Visibility == Visibility.Visible) TogglePanel_Click(null, null); });
+            // コース定義を指定せずに開いたときは、前回使ったコース定義を読む
+            st.Custom("LastCourse", () => _coursePath, v =>
+            {
+                if (_def == null && !string.IsNullOrEmpty(v) && System.IO.File.Exists(v))
+                {
+                    try { SetCourse(CourseDefinition.Load(v), v); Log("前回のコース定義を開きました: " + v); } catch (Exception) { }
+                }
+            });
+            Settings.Track(this, "LapWindow", st.SaveAll);
             UpdateButtons();
         }
+
+        string _coursePath;   // いま使っているコース定義のファイル (前回の設定として覚える)
 
         // ================= 入力 =================
 
         void SetCourse(CourseDefinition def, string label)
         {
             _def = def;
+            if (!string.IsNullOrEmpty(label) && label.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(label)) _coursePath = label;
             CourseText.Text = string.Format(Inv, "{0}\n周長 {1:F0} m / ライン {2} 本{3}", def.Name, def.LengthM, def.Gates.Count,
                 string.IsNullOrEmpty(label) ? "" : "\n" + label);
             UpdateButtons();
@@ -136,7 +159,9 @@ namespace Tk2Gui
             OpenFileDialog dlg = new OpenFileDialog();
             dlg.Title = "コース定義を開く";
             dlg.Filter = "コース定義 (*.course.json)|*.course.json|すべてのファイル (*.*)|*.*";
+            Settings.InitialDir(dlg, "course");
             if (dlg.ShowDialog(this) != true) return;
+            Settings.RememberDir("course", dlg.FileName);
             try
             {
                 SetCourse(CourseDefinition.Load(dlg.FileName), dlg.FileName);
@@ -154,7 +179,9 @@ namespace Tk2Gui
             OpenFileDialog dlg = new OpenFileDialog();
             dlg.Title = "ラップ CSV を開く";
             dlg.Filter = "ラップ CSV (*.csv)|*.csv|すべてのファイル (*.*)|*.*";
+            Settings.InitialDir(dlg, "csv");
             if (dlg.ShowDialog(this) != true) return;
+            Settings.RememberDir("csv", dlg.FileName);
             try
             {
                 LapAnalysis res = LapCsv.Read(dlg.FileName);
@@ -206,8 +233,12 @@ namespace Tk2Gui
             dlg.Title = "走行ログを選択";
             dlg.Filter = "走行ログ (*.tk2;*.nmea)|*.tk2;*.nmea|すべてのファイル (*.*)|*.*";
             dlg.Multiselect = true;
+            Settings.InitialDir(dlg, "logs");
             if (dlg.ShowDialog(this) == true)
+            {
+                Settings.RememberDir("logs", dlg.FileName);
                 foreach (string f in dlg.FileNames) AddFile(f);
+            }
         }
 
         void RemoveFile_Click(object sender, RoutedEventArgs e)
@@ -242,7 +273,7 @@ namespace Tk2Gui
             CourseDefinition def = _def;
             int restored = 0;
             _busy = true; UpdateButtons();
-            InfoText.Foreground = Brushes.DarkGreen;
+            InfoText.Foreground = Theme.Ok;
             InfoText.Text = "解析中...";
             Log("--- 解析開始: " + string.Join(", ", paths.Select(System.IO.Path.GetFileName)));
             System.Diagnostics.Stopwatch swAll = System.Diagnostics.Stopwatch.StartNew();
@@ -274,7 +305,7 @@ namespace Tk2Gui
             {
                 _res = null;
                 Log("失敗: " + ex.Message);
-                InfoText.Foreground = Brushes.Firebrick;
+                InfoText.Foreground = Theme.Error;
                 InfoText.Text = "失敗: " + ex.Message;
             }
             finally { _busy = false; UpdateButtons(); }
@@ -359,7 +390,7 @@ namespace Tk2Gui
         {
             string best = (_res.BestLap.HasValue ? "全体のベスト " + LapAnalyzer.FormatTime(_res.BestLap) : "ベストラップなし")
                 + (_res.BestMaxKmh.HasValue ? " / 最高速 " + _res.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "");
-            InfoText.Foreground = Brushes.DarkGreen;
+            InfoText.Foreground = Theme.Ok;
             InfoText.Text = string.Format(Inv, "{0} セッション / {1} 周 / {2}", _res.Sessions.Count, _res.Sessions.Sum(s => s.FullLaps), best);
             if (_readOnly) InfoText.Text += "   [CSV 表示中・読み取り専用]";
         }
@@ -525,7 +556,7 @@ namespace Tk2Gui
 
             string best = (_res.BestLap.HasValue ? "全体のベスト " + LapAnalyzer.FormatTime(_res.BestLap) : "ベストラップなし")
                 + (_res.BestMaxKmh.HasValue ? " / 最高速 " + _res.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "");
-            InfoText.Foreground = Brushes.DarkGreen;
+            InfoText.Foreground = Theme.Ok;
             InfoText.Text = string.Format(Inv, "{0} セッション / {1} 周 / {2}", _res.Sessions.Count, _res.Sessions.Sum(s => s.FullLaps), best);
             RefreshLaps();
             UpdateButtons();
@@ -662,13 +693,13 @@ namespace Tk2Gui
             e.Row.FontWeight = FontWeights.Normal;
             e.Row.Cursor = r.IsHeader ? Cursors.Hand : null;
             e.Row.ToolTip = string.IsNullOrEmpty(r.Note) ? null : r.Note;     // 備考が列の幅に収まらないときは、マウスを乗せると全文が出る
-            e.Row.Foreground = Brushes.Black;
-            if (r.IsHeader) { e.Row.Background = new SolidColorBrush(Color.FromRgb(0xC9, 0xD6, 0xEA)); e.Row.FontWeight = FontWeights.Bold; }
-            else if (r.IsInvalid) { e.Row.Background = new SolidColorBrush(Color.FromRgb(0xFB, 0xE3, 0xE3)); e.Row.Foreground = Brushes.Firebrick; }
-            else if (r.IsOut) e.Row.Background = new SolidColorBrush(Color.FromRgb(0xEE, 0xEE, 0xEE));
-            else if (r.IsBest) { e.Row.Background = new SolidColorBrush(Color.FromRgb(0xD9, 0xF2, 0xDC)); e.Row.FontWeight = FontWeights.Bold; }
-            else if (r.IsIn) e.Row.Background = new SolidColorBrush(Color.FromRgb(0xFF, 0xF3, 0xD6));
-            else e.Row.Background = Brushes.White;
+            e.Row.Foreground = Theme.Text;
+            if (r.IsHeader) { e.Row.Background = Theme.RowHeader; e.Row.FontWeight = FontWeights.Bold; }
+            else if (r.IsInvalid) { e.Row.Background = Theme.RowInvalid; e.Row.Foreground = Theme.Error; }
+            else if (r.IsOut) e.Row.Background = Theme.RowOut;
+            else if (r.IsBest) { e.Row.Background = Theme.RowBest; e.Row.FontWeight = FontWeights.Bold; }
+            else if (r.IsIn) e.Row.Background = Theme.RowIn;
+            else e.Row.Background = Theme.Panel;
         }
 
         // 左の設定パネルを隠す/出す (結果の表を広く使うため)
@@ -720,12 +751,14 @@ namespace Tk2Gui
             string first = FileList.Items.Count > 0 ? (string)FileList.Items[0] : null;
             dlg.FileName = (first != null ? System.IO.Path.GetFileNameWithoutExtension(first) : "laps") + "_laps.csv";
             if (first != null) dlg.InitialDirectory = System.IO.Path.GetDirectoryName(first);
+            Settings.InitialDir(dlg, "csv");
             if (dlg.ShowDialog(this) != true) return;
+            Settings.RememberDir("csv", dlg.FileName);
             try
             {
                 LapAnalyzer.WriteCsv(_res, dlg.FileName, JstOffsetHours);
                 Log("保存: " + dlg.FileName);
-                InfoText.Foreground = Brushes.DarkGreen;
+                InfoText.Foreground = Theme.Ok;
                 InfoText.Text = "保存しました: " + System.IO.Path.GetFileName(dlg.FileName);
             }
             catch (Exception ex)

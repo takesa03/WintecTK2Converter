@@ -3,17 +3,17 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="コース定義の作成" Height="820" Width="1080" MinHeight="600" MinWidth="900"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
-        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13">
+        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13" Icon="AppIcon.ico">
     <Window.Resources>
-        <Style TargetType="Button">
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Padding" Value="12,5"/>
             <Setter Property="Margin" Value="0,0,6,0"/>
         </Style>
-        <Style TargetType="GroupBox">
+        <Style TargetType="GroupBox" BasedOn="{StaticResource {x:Type GroupBox}}">
             <Setter Property="Padding" Value="8"/>
             <Setter Property="Margin" Value="0,0,0,8"/>
         </Style>
-        <Style TargetType="TextBox">
+        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
     </Window.Resources>
@@ -38,7 +38,7 @@
                             <Button Content="追加..." Click="AddFile_Click"/>
                             <Button Content="削除" Click="RemoveFile_Click"/>
                         </StackPanel>
-                        <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
+                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
                                    Text="複数周回が入ったログを選びます。ドラッグ＆ドロップでも追加できます。周回が多いほど平均化の精度が上がります。"/>
                     </StackPanel>
                 </GroupBox>
@@ -70,7 +70,7 @@
                 <GroupBox Header="コントロールライン・セクター" Name="GateGroup" IsEnabled="False">
                     <StackPanel>
                         <ListBox Name="GateList" Height="112" SelectionChanged="GateList_SelectionChanged"/>
-                        <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,4"
+                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,4"
                                    Text="一覧で選んだラインだけを前後に動かせます (距離は中心線の始点から進行方向に測ります。+ で進行方向へ)。"/>
                         <DockPanel Margin="0,0,0,4">
                             <TextBox DockPanel.Dock="Right" Name="PosBox" Width="60" Margin="6,0,0,0" LostFocus="PosBox_LostFocus"
@@ -114,7 +114,7 @@
                         <StackPanel Orientation="Horizontal">
                             <Button Content="コース定義を保存..." FontWeight="Bold" Click="Save_Click"/>
                         </StackPanel>
-                        <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
                                    Text="保存すると、同じ名前の確認用 KML (Google Earth 用) も作ります。"/>
                     </StackPanel>
                 </GroupBox>
@@ -128,9 +128,9 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <TextBlock Name="InfoText" Margin="0,0,0,6" TextWrapping="Wrap" Foreground="DarkGreen" FontWeight="Bold"
+            <TextBlock Name="InfoText" Margin="0,0,0,6" TextWrapping="Wrap" Foreground="{StaticResource OkBrush}" FontWeight="Bold"
                        Text="走行ログを追加して「解析する」を押してください"/>
-            <Border Grid.Row="1" BorderBrush="Gray" BorderThickness="1" Background="White" ClipToBounds="True">
+            <Border Grid.Row="1" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#1E2228" ClipToBounds="True">
                 <Canvas Name="Preview" SizeChanged="Preview_SizeChanged"/>
             </Border>
         </Grid>

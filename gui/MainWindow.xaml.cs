@@ -23,10 +23,22 @@ namespace Tk2Gui
         public MainWindow()
         {
             InitializeComponent();
+            Theme.ApplyDark(this);
             Title += "  " + App.VersionText;
             FileGrid.ItemsSource = _items;
             _items.CollectionChanged += (s, e) => UpdateState();
             ApplyIniToUi();
+            // 前回の画面の設定 (ini より優先)。閉じるときに覚える
+            Settings.Binder st = new Settings.Binder("Main");
+            st.Custom("OutMode", () => OutCustomRadio.IsChecked == true ? "custom" : "same",
+                      v => { if (v == "custom") OutCustomRadio.IsChecked = true; else OutSameRadio.IsChecked = true; });
+            st.Text(OutDirBox, "OutDir");
+            st.Combo(KmlCombo, "Kml");
+            st.Check(LocalDateCheck, "LocalDate");
+            st.Combo(AltCombo, "Altitude");
+            st.Check(TourCheck, "Tour");
+            st.Text(WeeksBox, "Weeks");
+            Settings.Track(this, "MainWindow", st.SaveAll);
             UpdateState();
 
             // exe へのドラッグ＆ドロップや「送る」、コマンドラインで渡されたファイル・フォルダを最初から並べる
@@ -134,14 +146,16 @@ namespace Tk2Gui
             dlg.Title = "Wintec TK2 ファイルを選択";
             dlg.Filter = "Wintec TK2 (*.tk2)|*.tk2|すべてのファイル (*.*)|*.*";
             dlg.Multiselect = true;
-            if (dlg.ShowDialog(this) == true) AddPaths(dlg.FileNames);
+            Settings.InitialDir(dlg, "tk2");
+            if (dlg.ShowDialog(this) == true) { Settings.RememberDir("tk2", dlg.FileName); AddPaths(dlg.FileNames); }
         }
 
         void AddFolder_Click(object sender, RoutedEventArgs e)
         {
             OpenFolderDialog dlg = new OpenFolderDialog();
             dlg.Title = ".tk2 ファイルのあるフォルダを選択";
-            if (dlg.ShowDialog(this) == true) AddPaths(new[] { dlg.FolderName });
+            Settings.InitialDir(dlg, "tk2");
+            if (dlg.ShowDialog(this) == true) { Settings.RememberDir("tk2", dlg.FolderName, true); AddPaths(new[] { dlg.FolderName }); }
         }
 
         void Remove_Click(object sender, RoutedEventArgs e)
@@ -283,7 +297,7 @@ namespace Tk2Gui
             Log("");
             UpdateState();
             StatusText.Text = string.Format("完了: 成功 {0} 件, 失敗 {1} 件", ok, ng);
-            StatusText.Foreground = ng > 0 ? System.Windows.Media.Brushes.Firebrick : System.Windows.Media.Brushes.DarkGreen;
+            StatusText.Foreground = ng > 0 ? Theme.Error : Theme.Ok;
         }
 
         void OpenOut_Click(object sender, RoutedEventArgs e)
@@ -317,7 +331,7 @@ namespace Tk2Gui
             {
                 if (_items.Count == 0) StatusText.Text = "ファイルを追加してください";
                 else if (ready && !StatusText.Text.StartsWith("完了")) StatusText.Text = "「変換する」を押してください";
-                StatusText.Foreground = System.Windows.Media.Brushes.DarkGreen;
+                StatusText.Foreground = Theme.Ok;
             }
         }
 

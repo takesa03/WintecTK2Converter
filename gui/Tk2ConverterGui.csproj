@@ -13,10 +13,13 @@
     <LangVersion>latest</LangVersion>
     <!-- tk2nmea.cs にも Main があるため、WPF 側の App を入口に指定する -->
     <StartupObject>Tk2Gui.App</StartupObject>
+    <!-- アイコン (tools/make_icon.py で作る。exe とウィンドウの両方に使う) -->
+    <ApplicationIcon>AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="..\tk2nmea.cs" Link="tk2nmea.cs" />
+    <Resource Include="AppIcon.ico" />
     <!-- 既定設定 (コンソール版と共通)。exe と同じフォルダにコピーされる -->
     <None Include="..\tk2nmea.ini" Link="tk2nmea.ini" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

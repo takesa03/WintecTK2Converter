@@ -26,7 +26,16 @@ namespace Tk2Gui
         public CourseWindow(IEnumerable<string> initialFiles)
         {
             InitializeComponent();
+            Theme.ApplyDark(this);
             Title += "  " + App.VersionText;
+            // 前回の解析の設定。閉じるときに覚える
+            Settings.Binder st = new Settings.Binder("Course");
+            st.Text(NameBox, "Name");
+            st.Text(MinSpeedBox, "MinSpeed");
+            st.Text(LapRatioBox, "LapRatio");
+            st.Text(SectorBox, "Sectors");
+            st.Text(HalfWidthBox, "HalfWidth");
+            Settings.Track(this, "CourseWindow", st.SaveAll);
             if (initialFiles != null)
                 foreach (string f in initialFiles) AddFile(f);
         }
@@ -64,8 +73,12 @@ namespace Tk2Gui
             dlg.Title = "走行ログを選択";
             dlg.Filter = "走行ログ (*.tk2;*.nmea)|*.tk2;*.nmea|すべてのファイル (*.*)|*.*";
             dlg.Multiselect = true;
+            Settings.InitialDir(dlg, "logs");
             if (dlg.ShowDialog(this) == true)
+            {
+                Settings.RememberDir("logs", dlg.FileName);
                 foreach (string f in dlg.FileNames) FileList.Items.Add(f);
+            }
         }
 
         void RemoveFile_Click(object sender, RoutedEventArgs e)
@@ -100,7 +113,7 @@ namespace Tk2Gui
 
             List<string> paths = FileList.Items.Cast<string>().ToList();
             SetBusy(true);
-            InfoText.Foreground = Brushes.DarkGreen;
+            InfoText.Foreground = Theme.Ok;
             InfoText.Text = "解析中...";
             Log("--- 解析開始: " + string.Join(", ", paths.Select(System.IO.Path.GetFileName)));
             try
@@ -117,7 +130,7 @@ namespace Tk2Gui
             catch (Exception ex)
             {
                 Log("失敗: " + ex.Message);
-                InfoText.Foreground = Brushes.Firebrick;
+                InfoText.Foreground = Theme.Error;
                 InfoText.Text = "失敗: " + ex.Message;
             }
             finally { SetBusy(false); }
@@ -151,7 +164,7 @@ namespace Tk2Gui
             RefreshGateList(0);
 
             CourseStats s = _def.Stats;
-            InfoText.Foreground = Brushes.DarkGreen;
+            InfoText.Foreground = Theme.Ok;
             InfoText.Text = string.Format(Inv, "{0}: 周長 {1:F0} m / {2} / 採用 {3} 周 (全 {4} 周) / ばらつき 標準偏差 {5:F1} m",
                 _def.Name, _def.LengthM, _def.Clockwise ? "時計回り" : "反時計回り", s.LapsUsed, s.LapsTotal, s.ScatterStdevM);
             Redraw();
@@ -250,7 +263,7 @@ namespace Tk2Gui
             }
             catch (Exception ex)
             {
-                InfoText.Foreground = Brushes.Firebrick;
+                InfoText.Foreground = Theme.Error;
                 InfoText.Text = ex.Message;
             }
         }
@@ -356,10 +369,10 @@ namespace Tk2Gui
                 Preview.Children.Add(new Line
                 {
                     X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y, StrokeThickness = selected ? 7 : (ctrl ? 5 : 4),
-                    Stroke = selected ? Brushes.DodgerBlue : (ctrl ? Brushes.Black : Brushes.DarkOrange)
+                    Stroke = selected ? Brushes.DodgerBlue : (ctrl ? Brushes.White : Brushes.DarkOrange)
                 });
                 TextBlock tb = new TextBlock { Text = ctrl ? "Control" : g.Name, FontWeight = FontWeights.Bold,
-                                               Foreground = selected ? Brushes.DodgerBlue : (ctrl ? Brushes.Black : Brushes.DarkOrange) };
+                                               Foreground = selected ? Brushes.DodgerBlue : (ctrl ? Brushes.White : Brushes.DarkOrange) };
                 Canvas.SetLeft(tb, Math.Max(a.X, b.X) + 4);
                 Canvas.SetTop(tb, (a.Y + b.Y) / 2 - 9);
                 Preview.Children.Add(tb);
@@ -367,7 +380,7 @@ namespace Tk2Gui
 
             // 凡例 / 縮尺
             double barM = scale * 50 > 40 ? 50 : 100;
-            Line bar = new Line { X1 = 16, Y1 = h - 16, X2 = 16 + barM * scale, Y2 = h - 16, Stroke = Brushes.Black, StrokeThickness = 2 };
+            Line bar = new Line { X1 = 16, Y1 = h - 16, X2 = 16 + barM * scale, Y2 = h - 16, Stroke = Theme.Text, StrokeThickness = 2 };
             Preview.Children.Add(bar);
             TextBlock bt = new TextBlock { Text = barM.ToString("0") + " m", FontSize = 11 };
             Canvas.SetLeft(bt, 16); Canvas.SetTop(bt, h - 34);
@@ -375,7 +388,7 @@ namespace Tk2Gui
             TextBlock legend = new TextBlock
             {
                 Text = "赤: 中心線 (平均化)　青: 採用した周回の軌跡　橙: 除外した周回　上が北",
-                FontSize = 11, Foreground = Brushes.Gray
+                FontSize = 11, Foreground = Theme.TextSecondary
             };
             Canvas.SetLeft(legend, 16); Canvas.SetTop(legend, 6);
             Preview.Children.Add(legend);
@@ -399,7 +412,9 @@ namespace Tk2Gui
             dlg.FileName = SafeName() + ".course.json";
             if (_res != null && _res.Samples != null && FileList.Items.Count > 0)
                 dlg.InitialDirectory = System.IO.Path.GetDirectoryName((string)FileList.Items[0]);
+            Settings.InitialDir(dlg, "course");
             if (dlg.ShowDialog(this) != true) return;
+            Settings.RememberDir("course", dlg.FileName);
             try
             {
                 string path = dlg.FileName;
@@ -409,7 +424,7 @@ namespace Tk2Gui
                 File.WriteAllText(kml, BuildKml(), new UTF8Encoding(false));
                 Log("保存: " + path);
                 Log("保存: " + kml + " (Google Earth 用)");
-                InfoText.Foreground = Brushes.DarkGreen;
+                InfoText.Foreground = Theme.Ok;
                 InfoText.Text = "保存しました: " + System.IO.Path.GetFileName(path);
             }
             catch (Exception ex)
@@ -458,7 +473,9 @@ namespace Tk2Gui
             OpenFileDialog dlg = new OpenFileDialog();
             dlg.Title = "コース定義を開く";
             dlg.Filter = "コース定義 (*.course.json)|*.course.json|すべてのファイル (*.*)|*.*";
+            Settings.InitialDir(dlg, "course");
             if (dlg.ShowDialog(this) != true) return;
+            Settings.RememberDir("course", dlg.FileName);
             try
             {
                 _def = CourseDefinition.Load(dlg.FileName);

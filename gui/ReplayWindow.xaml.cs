@@ -171,6 +171,7 @@ namespace Tk2Gui
         public ReplayWindow(CourseDefinition def, List<ReplayLap> laps)
         {
             InitializeComponent();
+            Theme.ApplyDark(this);
             _def = def; _laps = laps;
             _lat0 = def.Lat0; _lon0 = def.Lon0;
             _ky = 111132.0; _kx = 111320.0 * Math.Cos(_lat0 * Math.PI / 180);
@@ -187,6 +188,20 @@ namespace Tk2Gui
             Closed += (s, e) => System.Windows.Media.CompositionTarget.Rendering -= OnRender;
             _last = DateTime.Now;
             _playing = true; PlayButton.Content = "⏸ 一時停止";
+            // 前回の表示の設定 (基準の周回は、選んだ周回ごとに違うので覚えない)。閉じるときに覚える
+            Settings.Binder st = new Settings.Binder("Replay");
+            st.Combo(SpeedCombo, "Speed");
+            st.Check(LoopCheck, "Loop");
+            st.Check(TraceCheck, "Trace");
+            st.Check(LabelCheck, "Label");
+            st.Check(PhotoCheck, "Photo");
+            st.Custom("ZoomWidth", () => _zoomWidthM.ToString("0.#", Inv), v =>
+            {
+                double d;
+                if (double.TryParse(v, NumberStyles.Float, Inv, out d)) _zoomWidthM = Math.Max(20, Math.Min(3000, d));
+            });
+            st.Combo(ViewCombo, "View");
+            Settings.Track(this, "ReplayWindow", st.SaveAll);
         }
 
         void BuildLegend()
@@ -458,7 +473,7 @@ namespace Tk2Gui
                     double gap = tt - rf.TimeAtProgress(l.ProgressAt(tt));
                     if (_t >= l.LapTime && _t >= rf.LapTime) gap = l.LapTime - rf.LapTime;
                     _tGap[i].Text = (gap >= 0 ? "+" : "-") + Math.Abs(gap).ToString("0.00", Inv);
-                    _tGap[i].Foreground = gap > 0.005 ? Brushes.Firebrick : gap < -0.005 ? Brushes.SeaGreen : Brushes.Gray;
+                    _tGap[i].Foreground = gap > 0.005 ? Theme.Error : gap < -0.005 ? Theme.Ok : Brushes.Gray;
                 }
             }
             TimeText.Text = Fmt(_t) + " / " + Fmt(_maxDur);

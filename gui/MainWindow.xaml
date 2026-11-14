@@ -3,13 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Wintec TK2 変換ツール - NMEA / Google Earth (KMZ)" Height="680" Width="980" MinHeight="520" MinWidth="820"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
-        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13">
+        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13" Icon="AppIcon.ico">
     <Window.Resources>
-        <Style TargetType="Button">
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Padding" Value="12,5"/>
             <Setter Property="Margin" Value="0,0,6,0"/>
         </Style>
-        <Style TargetType="GroupBox">
+        <Style TargetType="GroupBox" BasedOn="{StaticResource {x:Type GroupBox}}">
             <Setter Property="Padding" Value="8"/>
             <Setter Property="Margin" Value="0,0,0,8"/>
         </Style>
@@ -35,7 +35,7 @@
             <Button Name="ClearButton" Content="すべてクリア" Click="Clear_Click"/>
             <Button Name="CourseButton" Content="コース定義を作成..." Click="Course_Click" Margin="14,0,6,0"/>
             <Button Name="LapButton" Content="ラップ解析..." Click="Lap_Click"/>
-            <TextBlock VerticalAlignment="Center" Margin="10,0,0,0" Foreground="Gray"
+            <TextBlock VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource TextSecondaryBrush}"
                        Text="※ .tk2 ファイルやフォルダをこの画面へドラッグ＆ドロップでも追加できます"/>
         </StackPanel>
 
@@ -60,11 +60,11 @@
                     </DataGrid.Columns>
                 </DataGrid>
                 <TextBlock Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"
-                           Foreground="Gray" FontSize="16" TextAlignment="Center"
+                           Foreground="{StaticResource TextSecondaryBrush}" FontSize="16" TextAlignment="Center"
                            Text="ここに .tk2 ファイルまたはフォルダを&#x0A;ドラッグ＆ドロップしてください"/>
             </Grid>
 
-            <TextBlock Grid.Row="1" Margin="0,4,0,6" Foreground="Gray" TextWrapping="Wrap"
+            <TextBlock Grid.Row="1" Margin="0,4,0,6" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"
                        Text="前後をカットしたいときは「開始カット」「終了カット」に現地時刻を入力 (例 08:05:00)。空欄ならカットしません。"/>
 
             <GroupBox Grid.Row="2" Header="選択中のファイルの記録と停止区間 (60 秒以上記録なし)" Margin="0">
@@ -89,7 +89,7 @@
 
                 <GroupBox Header="出力形式">
                     <StackPanel>
-                        <TextBlock Text="NMEA (.nmea) は常に出力します" Foreground="Gray" Margin="0,0,0,6"/>
+                        <TextBlock Text="NMEA (.nmea) は常に出力します" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
                         <DockPanel Margin="0,0,0,4">
                             <TextBlock Text="Google Earth 用: " VerticalAlignment="Center"/>
                             <ComboBox Name="KmlCombo" SelectedIndex="0">
@@ -121,11 +121,11 @@
                         <TextBlock Text="補正する週数: " VerticalAlignment="Center"/>
                         <TextBox Name="WeeksBox" Width="60" HorizontalAlignment="Left"
                                  ToolTip="空欄 = 自動 (通常 1024 週)。0 で補正なし"/>
-                        <TextBlock Text="  空欄 = 自動" Foreground="Gray" VerticalAlignment="Center"/>
+                        <TextBlock Text="  空欄 = 自動" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                     </DockPanel>
                 </GroupBox>
 
-                <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="12"
+                <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
                            Text="上記以外の細かい設定 (Km ポスト、速度の色分け、ツアーのカメラなど) は exe と同じフォルダの tk2nmea.ini で変更できます。初期値にも ini の内容が反映されます。"/>
             </StackPanel>
         </ScrollViewer>
@@ -136,7 +136,7 @@
                     Click="Convert_Click" IsEnabled="False"/>
             <Button Name="OpenOutButton" DockPanel.Dock="Left" Content="出力フォルダを開く" Padding="12,8"
                     Click="OpenOut_Click" IsEnabled="False"/>
-            <TextBlock Name="StatusText" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="DarkGreen" FontWeight="Bold"
+            <TextBlock Name="StatusText" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource OkBrush}" FontWeight="Bold"
                        Text="ファイルを追加してください"/>
         </DockPanel>
 

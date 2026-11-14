@@ -36,5 +36,8 @@ WPF 版は `Major.Minor.Build.Revision`（例: `v1.1.0.2`）。各ウィンド�
 Major.Minor.Build は `gui/Tk2ConverterGui.csproj` の `VersionMajorMinorBuild` で手で管理し、Revision はビルドのたびに 1 つ増えます（`gui/revision.txt`）。
 リリースには Git のタグ（`v1.1.0` など）を付けます。
 
+## アイコン
+WPF 版のアイコン（`gui/AppIcon.ico`）は `tools/make_icon.py`（Python + Pillow）で作っています。色などを変えるときは、スクリプトを直して `python tools/make_icon.py --preview` を実行してください。
+
 ## ライセンス
 MIT License

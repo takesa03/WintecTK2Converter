@@ -17,3 +17,5 @@ publish/
 *.drivers.json
 # セッションの手動編集 (分割・結合) の保存ファイル (個人のログに紐づく)
 *.sessions.json
+# 画面の設定 (exe と同じフォルダに作られる)
+*.settings.json

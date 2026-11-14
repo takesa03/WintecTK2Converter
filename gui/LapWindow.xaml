@@ -4,17 +4,17 @@
         xmlns:l="clr-namespace:Tk2Gui"
         Title="ラップ・セクタータイム" Height="820" Width="1180" MinHeight="600" MinWidth="960"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
-        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13">
+        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13" Icon="AppIcon.ico">
     <Window.Resources>
-        <Style TargetType="Button">
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Padding" Value="12,5"/>
             <Setter Property="Margin" Value="0,0,6,0"/>
         </Style>
-        <Style TargetType="GroupBox">
+        <Style TargetType="GroupBox" BasedOn="{StaticResource {x:Type GroupBox}}">
             <Setter Property="Padding" Value="8"/>
             <Setter Property="Margin" Value="0,0,0,8"/>
         </Style>
-        <Style TargetType="TextBox">
+        <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
     </Window.Resources>
@@ -46,7 +46,7 @@
                             <Button Content="追加..." Click="AddFile_Click"/>
                             <Button Content="削除" Click="RemoveFile_Click"/>
                         </StackPanel>
-                        <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
+                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
                                    Text="ドラッグ＆ドロップでも追加できます。ファイルごとにセッションを分けて解析します。"/>
                     </StackPanel>
                 </GroupBox>
@@ -84,14 +84,14 @@
                             <Button Name="CsvOpenButton" Content="CSV を開く..." Click="OpenCsv_Click"
                                     ToolTip="保存したラップ CSV をそのまま表示します (読み取り専用。ログやコース定義は要りません)"/>
                         </StackPanel>
-                        <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
+                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
                                    Text="セッション番号・ドライバー名・各区間のタイム・最高速度などを、全セッション続けて保存します (Excel で開けます)。"/>
                     </StackPanel>
                 </GroupBox>
 
-                <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"
+                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"
                            Text="マーク: ★ = 全セッション通しての最速 (ラップ・区間・最高速), ※ = そのセッション内での最速。最高速は 1 周の中で出た最高の km/h です。"/>
-                <TextBlock Foreground="Gray" FontSize="12" TextWrapping="Wrap"
+                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap"
                            Text="区間: S1 = コントロール → Sector1, S2 = Sector1 → Sector2, ... 最後の区間はコントロールラインで終わります。アウトラップは最初に通ったラインから計測し、ラップタイムは出しません。"/>
             </StackPanel>
         </ScrollViewer>
@@ -106,7 +106,7 @@
             <DockPanel Margin="0,0,0,6">
                 <Button DockPanel.Dock="Right" Name="PanelButton" Content="◀ 設定を隠す" Padding="8,2" Margin="8,0,0,0" Click="TogglePanel_Click"
                         ToolTip="左の設定パネルを隠して、結果を広く表示します"/>
-                <TextBlock Name="InfoText" TextWrapping="Wrap" Foreground="DarkGreen" FontWeight="Bold" VerticalAlignment="Center"
+                <TextBlock Name="InfoText" TextWrapping="Wrap" Foreground="{StaticResource OkBrush}" FontWeight="Bold" VerticalAlignment="Center"
                            Text="コース定義と走行ログを選んで「解析する」を押してください"/>
             </DockPanel>
 

@@ -11,6 +11,12 @@ namespace Tk2Gui
     /// </summary>
     public class QuietDataGrid : DataGrid
     {
+        public QuietDataGrid()
+        {
+            // 共通の DataGrid のスタイル (ダーク) は、派生した型には自動では効かないので、明示的に使う
+            SetResourceReference(StyleProperty, typeof(DataGrid));
+        }
+
         protected override AutomationPeer OnCreateAutomationPeer()
         {
             return new QuietPeer(this);
