@@ -66,13 +66,13 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="16"/><ColumnDefinition Width="*"/><ColumnDefinition Width="62"/><ColumnDefinition Width="62"/><ColumnDefinition Width="62"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="1" Text="周回" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Column="2" Text="ラップ" FontWeight="SemiBold" TextAlignment="Right"/>
+                    <TextBlock Grid.Column="1" Name="LegendLapHeader" Text="周回" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="2" Name="LegendTimeHeader" Text="ラップ" FontWeight="SemiBold" TextAlignment="Right"/>
                     <TextBlock Grid.Column="3" Text="速度" FontWeight="SemiBold" TextAlignment="Right"/>
                     <TextBlock Grid.Column="4" Text="差 (秒)" FontWeight="SemiBold" TextAlignment="Right"/>
                 </Grid>
                 <StackPanel Name="LegendPanel"/>
-                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0"
+                <TextBlock Name="HelpText" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,12,0,0"
                            Text="全員をコントロールラインの通過から同時に走らせます。差は、同じ地点 (周回の進み具合) に基準の周回が着いた時刻との差の目安です (＋ = 基準より遅れ、− = 基準より先)。周回の最後の差は、ラップタイムの差と一致します。&#x0A;表示を「基準の周回を中心に拡大」にすると、基準の周回の自車位置を中心に追いかけて、走行ラインの違いを見られます (＋／－ またはマウスホイールで拡大率を変更)。"/>
             </StackPanel>
         </ScrollViewer>

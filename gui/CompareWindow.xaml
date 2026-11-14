@@ -1,0 +1,48 @@
+﻿<Window x:Class="Tk2Gui.CompareWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="距離ごとの比較" Height="720" Width="1180" MinHeight="420" MinWidth="760"
+        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13" Icon="AppIcon.ico">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="290"/>
+        </Grid.ColumnDefinitions>
+        <WrapPanel Grid.ColumnSpan="2" Margin="0,0,0,8">
+            <TextBlock Text="基準" VerticalAlignment="Center" Margin="0,0,6,0"
+                       ToolTip="タイム差のグラフの基準 (0 の線)。＋ = 基準より遅れ、− = 基準より先"/>
+            <ComboBox Name="RefCombo" Width="260" SelectionChanged="RefCombo_SelectionChanged"/>
+            <Button Content="全体を表示" Click="ResetZoom_Click" Margin="12,0,0,0" Padding="10,2"
+                    ToolTip="拡大を元に戻します (グラフの上でホイール = 横方向に拡大・縮小、左ドラッグ = 左右に動かす)"/>
+            <TextBlock Name="HintText" VerticalAlignment="Center" Margin="12,0,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
+                       Text="ホイールで拡大、ドラッグで左右に動かします。上 = 速度、下 = 基準とのタイム差 (＋ = 遅れ)"/>
+        </WrapPanel>
+        <Border Grid.Row="1" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#1E2228" ClipToBounds="True">
+            <Canvas Name="Chart" Background="Transparent" Cursor="Cross" SizeChanged="Chart_SizeChanged"
+                    MouseMove="Chart_MouseMove" MouseLeave="Chart_MouseLeave" MouseWheel="Chart_MouseWheel"
+                    MouseLeftButtonDown="Chart_MouseLeftButtonDown" MouseLeftButtonUp="Chart_MouseLeftButtonUp"/>
+        </Border>
+        <ScrollViewer Grid.Row="1" Grid.Column="1" Margin="10,0,0,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Name="CursorText" FontWeight="SemiBold" Margin="0,0,0,6" Text="グラフにマウスを乗せると、その距離の値を出します"
+                           TextWrapping="Wrap"/>
+                <Grid Margin="0,0,0,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="16"/><ColumnDefinition Width="*"/><ColumnDefinition Width="66"/><ColumnDefinition Width="52"/><ColumnDefinition Width="58"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="1" Text="走行" FontWeight="SemiBold"/>
+                    <TextBlock Grid.Column="2" Text="タイム" FontWeight="SemiBold" TextAlignment="Right"/>
+                    <TextBlock Grid.Column="3" Text="km/h" FontWeight="SemiBold" TextAlignment="Right"/>
+                    <TextBlock Grid.Column="4" Text="差 (秒)" FontWeight="SemiBold" TextAlignment="Right"/>
+                </Grid>
+                <StackPanel Name="LegendPanel"/>
+                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0"
+                           Text="横軸はスタート (コントロール) ラインからの距離です。各走行の位置を中心線に重ねて距離にしています。差は、同じ距離に着いた時刻の、基準との差です (＋ = 基準より遅れ)。右へ上がる所で差がつき、下がる所で取り返しています。"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

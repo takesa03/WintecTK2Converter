@@ -34,6 +34,7 @@ namespace Tk2Gui
         public double Lat;
         public double Lon;
         public double SpeedKmh = double.NaN;   // ロガーが記録した速度 (NMEA の RMC)。無ければ NaN
+        public double Alt = double.NaN;        // 高度 [m] (tk2 / NMEA の GGA)。無ければ NaN
     }
 
     /// <summary>.tk2 / .nmea から位置列を読む。</summary>
@@ -52,7 +53,7 @@ namespace Tk2Gui
             DateTime epoch = new DateTime(2000, 1, 1);
             List<GpsSample> list = new List<GpsSample>(t.Recs.Length);
             foreach (Record r in t.Recs)
-                list.Add(new GpsSample { T = (r.Time - epoch).TotalSeconds, Lat = r.LatE7 / 1e7, Lon = r.LonE7 / 1e7 });
+                list.Add(new GpsSample { T = (r.Time - epoch).TotalSeconds, Lat = r.LatE7 / 1e7, Lon = r.LonE7 / 1e7, Alt = r.AltM });
             return list;
         }
 
@@ -63,8 +64,17 @@ namespace Tk2Gui
             List<GpsSample> list = new List<GpsSample>();
             CultureInfo inv = CultureInfo.InvariantCulture;
             double day0 = -1, prevTod = -1, dayOffset = 0;
+            string ggaTime = null; double ggaAlt = double.NaN;
             foreach (string line in File.ReadLines(path))
             {
+                if (line.StartsWith("$GPGGA", StringComparison.Ordinal) || line.StartsWith("$GNGGA", StringComparison.Ordinal))
+                {
+                    // 高度だけ使う (同じ時刻の RMC に付ける)
+                    string[] g = line.Split(',');
+                    double a;
+                    if (g.Length > 9 && double.TryParse(g[9], NumberStyles.Float, inv, out a)) { ggaTime = g[1]; ggaAlt = a; }
+                    continue;
+                }
                 if (!line.StartsWith("$GPRMC", StringComparison.Ordinal)) continue;
                 string[] f = line.Split(',');
                 if (f.Length < 10 || f[2] != "A" || f[1].Length < 6 || f[3].Length < 4 || f[5].Length < 5) continue;
@@ -87,7 +97,7 @@ namespace Tk2Gui
                 if (f[6] == "W") lon = -lon;
                 double kn;
                 double sp = f[7].Length > 0 && double.TryParse(f[7], NumberStyles.Float, inv, out kn) ? kn * 1.852 : double.NaN;
-                list.Add(new GpsSample { T = (day0 + dayOffset) * 86400 + tod, Lat = lat, Lon = lon, SpeedKmh = sp });
+                list.Add(new GpsSample { T = (day0 + dayOffset) * 86400 + tod, Lat = lat, Lon = lon, SpeedKmh = sp, Alt = ggaTime == f[1] ? ggaAlt : double.NaN });
             }
             if (list.Count < 10) throw new InvalidDataException("位置データが読めません: " + Path.GetFileName(path));
             return list;
@@ -116,6 +126,9 @@ namespace Tk2Gui
         [JsonPropertyName("distanceM")] public double S { get; set; }   // 中心線の始点からの距離
         [JsonPropertyName("a")] public LatLon A { get; set; }
         [JsonPropertyName("b")] public LatLon B { get; set; }
+        // ジムカーナのみ: このラインを通る向き (北基準 [度])。同じ所を逆向きに通るのと区別するため
+        [JsonPropertyName("headingDeg"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? HeadingDeg { get; set; }
     }
 
     public sealed class CourseStats
@@ -135,6 +148,9 @@ namespace Tk2Gui
         [JsonPropertyName("format")] public string Format { get; set; } = "WintecTK2Course";
         [JsonPropertyName("version")] public int Version { get; set; } = 1;
         [JsonPropertyName("name")] public string Name { get; set; } = "Course";
+        // null または "circuit" = サーキット (中心線は閉じた輪)。"gymkhana" = ジムカーナ (中心線は始点と終点のある線)
+        [JsonPropertyName("mode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string Mode { get; set; }
         [JsonPropertyName("created")] public string Created { get; set; }
         [JsonPropertyName("sources")] public List<string> Sources { get; set; } = new List<string>();
         [JsonPropertyName("lengthM")] public double LengthM { get; set; }
@@ -164,6 +180,9 @@ namespace Tk2Gui
             return d;
         }
 
+        public const string GymkhanaMode = "gymkhana";
+        [JsonIgnore] public bool IsGymkhana { get { return Mode == GymkhanaMode; } }
+
         // ---- 局所平面座標 (m) との変換 ----
         public double Lat0 { get { return Centerline.Average(p => p.Lat); } }
         public double Lon0 { get { return Centerline.Average(p => p.Lon); } }
@@ -174,16 +193,19 @@ namespace Tk2Gui
             double lat0 = Lat0, lon0 = Lon0;
             double ky = 111132.0, kx = 111320.0 * Math.Cos(lat0 * Math.PI / 180);
             int n = Centerline.Count;
-            double[] cum = new double[n + 1];
-            for (int i = 0; i < n; i++)
+            // ジムカーナは閉じていない線なので、最後の点から最初の点へは戻らない
+            int segs = IsGymkhana ? n - 1 : n;
+            double[] cum = new double[segs + 1];
+            for (int i = 0; i < segs; i++)
             {
                 LatLon a = Centerline[i], b = Centerline[(i + 1) % n];
                 cum[i + 1] = cum[i] + Math.Sqrt(Math.Pow((b.Lon - a.Lon) * kx, 2) + Math.Pow((b.Lat - a.Lat) * ky, 2));
             }
-            double L = cum[n];
-            s = ((s % L) + L) % L;
+            double L = cum[segs];
+            if (IsGymkhana) s = Math.Max(0, Math.Min(L, s));
+            else s = ((s % L) + L) % L;
             int k = 0;
-            while (k < n - 1 && cum[k + 1] < s) k++;
+            while (k < segs - 1 && cum[k + 1] < s) k++;
             LatLon p0 = Centerline[k], p1 = Centerline[(k + 1) % n];
             double seg = cum[k + 1] - cum[k];
             double f = seg > 0 ? (s - cum[k]) / seg : 0;
@@ -204,6 +226,22 @@ namespace Tk2Gui
                 Gates.Add(CreateGate(k == 0 ? "ControlLine" : "Sector" + k, controlPosM + LengthM * k / (sectorCount + 1), halfWidthM));
         }
 
+        /// <summary>
+        /// ジムカーナ: スタートライン・セクターライン・フィニッシュラインを作り直す (この順に並べる)。
+        /// セクターはスタートとフィニッシュの間を (N+1) 等分した位置。
+        /// </summary>
+        public void MakeGymkhanaGates(double startPosM, double finishPosM, int sectorCount, double halfWidthM)
+        {
+            GateHalfWidthM = halfWidthM;
+            Gates.Clear();
+            Gates.Add(CreateGate(StartGateName, startPosM, halfWidthM));
+            for (int k = 1; k <= sectorCount; k++)
+                Gates.Add(CreateGate("Sector" + k, startPosM + (finishPosM - startPosM) * k / (sectorCount + 1), halfWidthM));
+            Gates.Add(CreateGate(FinishGateName, finishPosM, halfWidthM));
+        }
+
+        public const string StartGateName = "Start", FinishGateName = "Finish";
+
         /// <summary>index 番目のラインだけを、中心線の始点から s [m] の位置へ動かす (ほかのラインは動かさない)。</summary>
         public void UpdateGate(int index, double s, double halfWidthM)
         {
@@ -220,7 +258,8 @@ namespace Tk2Gui
         Gate CreateGate(string name, double s, double halfWidthM)
         {
             double ky = 111132.0, kx = 111320.0 * Math.Cos(Lat0 * Math.PI / 180);
-            s = ((s % LengthM) + LengthM) % LengthM;
+            if (IsGymkhana) s = Math.Max(0, Math.Min(LengthM, s));
+            else s = ((s % LengthM) + LengthM) % LengthM;
             LatLon pos; double hd;
             PointAt(s, out pos, out hd);
             double th = hd * Math.PI / 180;
@@ -231,7 +270,8 @@ namespace Tk2Gui
                 Name = name,
                 S = s,
                 A = new LatLon(pos.Lat + ny * halfWidthM / ky, pos.Lon + nx * halfWidthM / kx),
-                B = new LatLon(pos.Lat - ny * halfWidthM / ky, pos.Lon - nx * halfWidthM / kx)
+                B = new LatLon(pos.Lat - ny * halfWidthM / ky, pos.Lon - nx * halfWidthM / kx),
+                HeadingDeg = IsGymkhana ? (double?)Math.Round(hd, 1) : null
             };
         }
     }
@@ -245,6 +285,7 @@ namespace Tk2Gui
         public int[] LapIds;                // 点ごとの周回番号
         public List<string> Log = new List<string>();
         public double AutoControlPosM;      // 自動で決めたコントロールラインの位置
+        public GymkhanaData Gym;            // ジムカーナのみ: 切り出した走行など (作り直しに使う)
     }
 
     // ---------------------------------------------------------------------
@@ -677,9 +718,12 @@ namespace Tk2Gui
             k.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
             k.AppendLine("<kml xmlns=\"http://www.opengis.net/kml/2.2\"><Document>");
             k.AppendLine("<name>" + Xml(def.Name) + " (コース定義)</name>");
-            k.AppendLine("<description>" + Xml(string.Format(CultureInfo.InvariantCulture,
+            bool gym = def.IsGymkhana;
+            k.AppendLine("<description>" + Xml(gym ? GymkhanaBuilder.Summary(def) : string.Format(CultureInfo.InvariantCulture,
                 "周長 {0:F0} m / {1} / 採用 {2} 周 (全 {3} 周) / ばらつき 標準偏差 {4:F1} m",
                 def.LengthM, def.Clockwise ? "時計回り" : "反時計回り", def.Stats.LapsUsed, def.Stats.LapsTotal, def.Stats.ScatterStdevM)) + "</description>");
+            k.AppendLine("<Style id=\"start\"><LineStyle><color>ff32cd32</color><width>6</width></LineStyle><LabelStyle><color>ff32cd32</color><scale>1.2</scale></LabelStyle></Style>");
+            k.AppendLine("<Style id=\"finish\"><LineStyle><color>ffffffff</color><width>6</width></LineStyle><LabelStyle><color>ffffffff</color><scale>1.2</scale></LabelStyle></Style>");
             k.AppendLine("<Style id=\"center\"><LineStyle><color>ff0000ff</color><width>4</width></LineStyle></Style>");
             k.AppendLine("<Style id=\"gate\"><LineStyle><color>ff00ffff</color><width>5</width></LineStyle><LabelStyle><color>ff00ffff</color><scale>1.1</scale></LabelStyle></Style>");
             k.AppendLine("<Style id=\"ctrl\"><LineStyle><color>ffffffff</color><width>6</width></LineStyle><LabelStyle><color>ffffffff</color><scale>1.2</scale></LabelStyle></Style>");
@@ -687,8 +731,9 @@ namespace Tk2Gui
             k.AppendLine("<Style id=\"excl\"><LineStyle><color>5560a0ff</color><width>1.5</width></LineStyle></Style>");
             k.AppendLine("<Style id=\"arrow\"><IconStyle><scale>0.8</scale><Icon><href>http://maps.google.com/mapfiles/kml/shapes/arrow.png</href></Icon></IconStyle><LabelStyle><scale>0</scale></LabelStyle></Style>");
 
-            k.AppendLine("<Folder><name>中心線 (平均化したコース)</name><open>1</open>");
-            List<LatLon> loop = new List<LatLon>(def.Centerline) { def.Centerline[0] };
+            k.AppendLine(gym ? "<Folder><name>中心線 (基準の走行)</name><open>1</open>" : "<Folder><name>中心線 (平均化したコース)</name><open>1</open>");
+            List<LatLon> loop = new List<LatLon>(def.Centerline);
+            if (!gym) loop.Add(def.Centerline[0]);
             k.AppendLine("<Placemark><name>中心線</name><styleUrl>#center</styleUrl><LineString><tessellate>1</tessellate><altitudeMode>clampToGround</altitudeMode><coordinates>"
                 + Coords(loop) + "</coordinates></LineString></Placemark>");
             // 進行方向の矢印 (周長の 1/8 ごと)。Google Earth 標準の arrow.png は heading=0 で
@@ -704,10 +749,11 @@ namespace Tk2Gui
             }
             k.AppendLine("</Folder>");
 
-            k.AppendLine("<Folder><name>コントロールライン・セクター</name><open>1</open>");
+            k.AppendLine(gym ? "<Folder><name>スタート・フィニッシュ・セクター</name><open>1</open>" : "<Folder><name>コントロールライン・セクター</name><open>1</open>");
             foreach (Gate g in def.Gates)
             {
-                k.AppendLine("<Placemark><name>" + Xml(g.Name) + "</name><styleUrl>#" + (g.Name == "ControlLine" ? "ctrl" : "gate")
+                string style = g.Name == "ControlLine" ? "ctrl" : g.Name == CourseDefinition.StartGateName ? "start" : g.Name == CourseDefinition.FinishGateName ? "finish" : "gate";
+                k.AppendLine("<Placemark><name>" + Xml(g.Name) + "</name><styleUrl>#" + style
                     + "</styleUrl><LineString><tessellate>1</tessellate><altitudeMode>clampToGround</altitudeMode><coordinates>"
                     + Coords(new[] { g.A, g.B }) + "</coordinates></LineString></Placemark>");
             }
@@ -716,7 +762,8 @@ namespace Tk2Gui
             if (showData && res.Samples != null)
             {
                 // 周回ごとに線にする (青 = 採用, オレンジ = 除外した周回)。欠測・低速で切る
-                k.AppendLine("<Folder><name>元データ (青=採用, オレンジ=除外した周回)</name><visibility>1</visibility>");
+                k.AppendLine(gym ? "<Folder><name>元データ (青=基準の走行, オレンジ=ほかの走行)</name><visibility>1</visibility>"
+                                 : "<Folder><name>元データ (青=採用, オレンジ=除外した周回)</name><visibility>1</visibility>");
                 for (int cls = 2; cls >= 1; cls--)
                 {
                     List<LatLon> run = new List<LatLon>();

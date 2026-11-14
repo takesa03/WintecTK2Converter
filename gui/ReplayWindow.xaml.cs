@@ -155,10 +155,6 @@ namespace Tk2Gui
         Canvas _photo;
         readonly Dictionary<string, Image> _tiles = new Dictionary<string, Image>();
         int _tileZ = -1;
-        static readonly HttpClient Http = MakeHttp();
-        static readonly SemaphoreSlim Downloads = new SemaphoreSlim(4);
-        const string TileUrl = "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{0}/{1}/{2}.jpg";
-        static readonly string TileCache = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WintecTK2Converter", "tiles", "seamlessphoto");
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
         public static readonly Color[] Palette =
@@ -184,6 +180,14 @@ namespace Tk2Gui
             RefCombo.SelectedIndex = _ref;
             BuildLegend();
             Title = "周回の比較再生 - " + def.Name + " (" + laps.Count + " 周)  " + App.VersionText;
+            if (def.IsGymkhana)
+            {
+                // ジムカーナ: 周回 → 走行、コントロールライン → スタートライン
+                Title = "走行の比較再生 - " + def.Name + " (" + laps.Count + " 本)  " + App.VersionText;
+                LegendLapHeader.Text = "走行"; LegendTimeHeader.Text = "タイム";
+                HelpText.Text = HelpText.Text.Replace("コントロールライン", "スタートライン").Replace("周回の最後", "走行の最後").Replace("ラップタイム", "タイム")
+                    .Replace("周回の進み具合", "走行の進み具合").Replace("基準の周回", "基準の走行");
+            }
             Loaded += (s, e) => { System.Windows.Media.CompositionTarget.Rendering += OnRender; Redraw(); };
             Closed += (s, e) => System.Windows.Media.CompositionTarget.Rendering -= OnRender;
             _last = DateTime.Now;
@@ -263,7 +267,7 @@ namespace Tk2Gui
             // 路面 (中心線を太く) と、中心の破線
             PointCollection road = new PointCollection();
             foreach (LatLon p in _def.Centerline) road.Add(W((p.Lon - _lon0) * _kx, (p.Lat - _lat0) * _ky));
-            if (road.Count > 0) road.Add(road[0]);
+            if (road.Count > 0 && !_def.IsGymkhana) road.Add(road[0]);      // ジムカーナの中心線は閉じない
             _road = new Polyline { Points = road, Stroke = new SolidColorBrush(Color.FromRgb(0x3A, 0x40, 0x4A)), StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round };
             _world.Children.Add(_road);
             _world.Children.Add(Px(new Polyline { Points = road, Stroke = new SolidColorBrush(Color.FromRgb(0x5A, 0x62, 0x70)), StrokeDashArray = new DoubleCollection { 4, 4 } }, 1));
@@ -276,9 +280,19 @@ namespace Tk2Gui
                 Gate g = _def.Gates[k];
                 double ax = (g.A.Lon - _lon0) * _kx, ay = (g.A.Lat - _lat0) * _ky, bx = (g.B.Lon - _lon0) * _kx, by = (g.B.Lat - _lat0) * _ky;
                 Brush c = k == 0 ? Brushes.White : new SolidColorBrush(Color.FromRgb(0xFF, 0xD2, 0x3F));
+                string text = k == 0 ? "Control" : "S" + k;
+                bool main = k == 0;
+                if (_def.IsGymkhana)
+                {
+                    // ジムカーナ: スタート = 緑, フィニッシュ = 白, セクター = 橙 (コース定義の画面と同じ)
+                    bool start = g.Name == CourseDefinition.StartGateName, finish = g.Name == CourseDefinition.FinishGateName;
+                    c = start ? new SolidColorBrush(Color.FromRgb(0x4C, 0xD9, 0x64)) : finish ? Brushes.White : new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x40));
+                    text = start ? "Start" : finish ? "Finish" : g.Name.Replace("Sector", "S");
+                    main = start || finish;
+                }
                 Point a = W(ax, ay), b = W(bx, by);
-                _world.Children.Add(Px(new Line { X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y, Stroke = c }, k == 0 ? 3 : 2));
-                _gateLabels[k] = new TextBlock { Text = k == 0 ? "Control" : "S" + k, Foreground = c, FontSize = 11 };
+                _world.Children.Add(Px(new Line { X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y, Stroke = c }, main ? 3 : 2));
+                _gateLabels[k] = new TextBlock { Text = text, Foreground = c, FontSize = 11 };
                 _gateLabelAt[k] = new Point(bx, by);
                 MapCanvas.Children.Add(_gateLabels[k]);
             }
@@ -350,21 +364,10 @@ namespace Tk2Gui
 
         // ---------------- 航空写真 (地理院タイル) ----------------
 
-        static HttpClient MakeHttp()
-        {
-            HttpClient c = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-            c.DefaultRequestHeaders.UserAgent.ParseAdd("WintecTK2Converter/1.0");
-            return c;
-        }
-
-        static int TileX(double lon, int z) { return (int)Math.Floor((lon + 180) / 360 * (1 << z)); }
-        static int TileY(double lat, int z)
-        {
-            double r = lat * Math.PI / 180;
-            return (int)Math.Floor((1 - Math.Log(Math.Tan(r) + 1 / Math.Cos(r)) / Math.PI) / 2 * (1 << z));
-        }
-        static double TileLon(int x, int z) { return (double)x / (1 << z) * 360 - 180; }
-        static double TileLat(int y, int z) { return Math.Atan(Math.Sinh(Math.PI * (1 - 2.0 * y / (1 << z)))) * 180 / Math.PI; }
+        static int TileX(double lon, int z) { return GsiTiles.TileX(lon, z); }
+        static int TileY(double lat, int z) { return GsiTiles.TileY(lat, z); }
+        static double TileLon(int x, int z) { return GsiTiles.TileLon(x, z); }
+        static double TileLat(int y, int z) { return GsiTiles.TileLat(y, z); }
 
         // いま見えている範囲の写真を並べる (足りないものだけ読み込む)。拡大率に合う解像度 (ズームレベル) を選ぶ
         void EnsureTiles(double w, double h)
@@ -377,9 +380,7 @@ namespace Tk2Gui
             if (!on) return;
 
             double latC = _lat0 + _oy / _ky;
-            double mpp = 1 / _scale;                                               // 画面の 1 px が何 m か
-            int z = (int)Math.Round(Math.Log(156543.034 * Math.Cos(latC * Math.PI / 180) / mpp, 2));
-            z = Math.Max(10, Math.Min(18, z));
+            int z = GsiTiles.ZoomFor(latC, 1 / _scale);                           // 1 / _scale = 画面の 1 px が何 m か
             if (z != _tileZ) { _photo.Children.Clear(); _tiles.Clear(); _tileZ = z; }
 
             double x0 = _ox - _cx / _scale, x1 = _ox + (w - _cx) / _scale;
@@ -406,36 +407,9 @@ namespace Tk2Gui
         // 写真を 1 枚読む。保存してあればそれを使い、なければ国土地理院から取ってきて保存する
         async void LoadTile(Image img, int z, int x, int y)
         {
-            string path = System.IO.Path.Combine(TileCache, z.ToString(Inv), x.ToString(Inv), y.ToString(Inv) + ".jpg");
-            byte[] data = null;
-            try
-            {
-                if (File.Exists(path)) data = await Task.Run(() => File.ReadAllBytes(path));
-                else
-                {
-                    await Downloads.WaitAsync();
-                    try
-                    {
-                        if (img.Parent == null) return;                              // 拡大率が変わって、もう要らない
-                        data = await Http.GetByteArrayAsync(string.Format(Inv, TileUrl, z, x, y));
-                    }
-                    finally { Downloads.Release(); }
-                    string dir = System.IO.Path.GetDirectoryName(path);
-                    byte[] d = data;
-                    await Task.Run(() => { Directory.CreateDirectory(dir); File.WriteAllBytes(path, d); });
-                }
-                BitmapImage bi = new BitmapImage();
-                bi.BeginInit();
-                bi.CacheOption = BitmapCacheOption.OnLoad;
-                bi.StreamSource = new MemoryStream(data);
-                bi.EndInit();
-                bi.Freeze();
-                img.Source = bi;
-            }
-            catch (Exception)
-            {
-                // 写真がない場所 (海など)・通信できないときは、その部分は背景なしのまま
-            }
+            // 拡大率が変わってもう要らなければ取りに行かない。写真がない場所・通信できないときは背景なしのまま
+            BitmapSource bi = await GsiTiles.LoadAsync(z, x, y, () => img.Parent != null);
+            if (bi != null) img.Source = bi;
         }
 
         void UpdateScaleBar(double w, double h)

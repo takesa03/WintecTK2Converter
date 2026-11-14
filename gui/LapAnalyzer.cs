@@ -68,10 +68,24 @@ namespace Tk2Gui
         public bool IsBestMax;                    // 全セッション通しての最高速ベスト (周回内の最高速度)
         public bool IsSessionBestMax;             // そのセッション内の最高速ベスト
         public string FileName;
+        // ジムカーナの走行 (LapNo = 何本目)
+        public bool IsGymRun;
+        public bool Dnf;                          // フィニッシュしなかった (タイムなし)
+        public bool MissCourse;                   // ラインを飛ばした (ミスコースの疑い。タイムは出すがベストの対象外)
+        public bool HasStop;                      // 走行中に停止 (スピンなど) を含む。タイムはそのまま
+        public double? Gap;                       // 全体のベストとの差 [s]
+        // ジムカーナ: 走行ごとの手入力 (*.runs.json に保存。タイムには反映しない)
+        public string Memo = "";                  // メモ (パイロンタッチ・脱輪など)
+        public string RunDriver = "";             // この走行のドライバー (空ならセッションのドライバー)
+        public string Mark;                       // 手動の印: null = 自動, "valid" = 有効 (ベストの対象), "miss" = ミスコース扱い (ベストの対象外)
+        public bool AutoMissCourse;               // 自動判定でのミスコースの疑い
+        public string AutoNote = "";              // 自動判定の備考 (手動の印の注記を足す前)
+        public const string MarkValid = "valid", MarkMiss = "miss";
         public string Label
         {
             get
             {
+                if (IsGymRun) return LapNo + "本目" + (Dnf ? " DNF" : "");
                 if (!Valid) return "×";
                 if (Type == LapType.Out) return "OUT";
                 if (Type == LapType.Partial) return "途中";
@@ -105,9 +119,11 @@ namespace Tk2Gui
         public double? BestLap;
         public double?[] BestSector;
         public double? BestMaxKmh;                // 全体の最高速
+        public bool IsGymkhana;                   // ジムカーナ (1 ログ = 1 セッション、周回 = 走行)
+        public double? TheoreticalBest;           // 理論ベスト (区間ベストの合計。ジムカーナのみ)
     }
 
-    public static class LapAnalyzer
+    public static partial class LapAnalyzer
     {
         struct Crossing
         {
@@ -122,6 +138,13 @@ namespace Tk2Gui
             // V: その点に着いたときの区間の速度 [km/h] (欠測をまたぐ場合は NaN)
         }
 
+        /// <summary>周回・走行のドライバー (ジムカーナで走行ごとの名前があればそれ、無ければセッションの名前)。</summary>
+        public static string DriverOf(SessionRecord s, LapRecord l)
+        {
+            if (l != null && !string.IsNullOrWhiteSpace(l.RunDriver)) return l.RunDriver.Trim();
+            return s == null ? "" : (s.Driver ?? "");
+        }
+
         public static string FormatTime(double? sec)
         {
             if (!sec.HasValue) return "";
@@ -132,6 +155,7 @@ namespace Tk2Gui
 
         public static LapAnalysis Analyze(CourseDefinition def, IList<List<GpsSample>> files, IList<string> names, LapParams prm)
         {
+            if (def.IsGymkhana) return AnalyzeGymkhana(def, files, names, prm);     // GymkhanaTiming.cs
             if (def.Gates.Count < 2) throw new InvalidOperationException("コース定義にラインが足りません (コントロールラインとセクターライン 1 本以上が必要です)");
             LapAnalysis res = new LapAnalysis();
 
@@ -540,9 +564,10 @@ namespace Tk2Gui
             return n == 0 ? 0 : (n % 2 == 1 ? v[n / 2] : (v[n / 2 - 1] + v[n / 2]) / 2);
         }
 
-        // ベストの対象: 有効な 1 周 (OUT・途中・未完・遅い周回は対象外)
+        // ベストの対象: 有効な 1 周 (OUT・途中・未完・遅い周回は対象外)。ジムカーナはミスコースの疑い・DNF を除く
         static bool CountsForBest(LapRecord l)
         {
+            if (l.IsGymRun) return l.Valid && l.LapTime.HasValue && !l.MissCourse && !l.Dnf;
             return l.Valid && l.Type == LapType.Normal && l.LapTime.HasValue && !l.Note.Contains("遅い") && !l.ContainsStop;
         }
 
@@ -561,13 +586,15 @@ namespace Tk2Gui
             foreach (string n in res.SectorNames) sb.Append(',').Append(n);
             sb.Append(",LapSec,LapTime");
             foreach (string n in res.SectorNames) sb.Append(',').Append(n).Append("MaxKmh");
-            sb.Append(",MaxKmh,BestLap,BestSectors,BestMaxKmh,Note\r\n");
+            sb.Append(",MaxKmh,BestLap,BestSectors,BestMaxKmh,Note");
+            sb.Append(res.IsGymkhana ? ",Gap,Memo\r\n" : "\r\n");      // ジムカーナ: ベストとの差・メモ (Driver 列は走行ごとのドライバー)
             foreach (SessionRecord s in res.Sessions)
             {
                 foreach (LapRecord l in s.Laps)
                 {
-                    string type = l.Type == LapType.Out ? "OUT" : l.Type == LapType.Normal ? (l.IsIn ? "IN" : "LAP") : l.Type == LapType.Partial ? "PARTIAL" : "INCOMPLETE";
-                    sb.Append(s.No).Append(',').Append(Csv(s.Driver)).Append(',').Append(Csv(l.FileName)).Append(',')
+                    string type = l.IsGymRun ? (l.Dnf ? "DNF" : l.MissCourse ? "MISS" : "RUN")
+                        : l.Type == LapType.Out ? "OUT" : l.Type == LapType.Normal ? (l.IsIn ? "IN" : "LAP") : l.Type == LapType.Partial ? "PARTIAL" : "INCOMPLETE";
+                    sb.Append(s.No).Append(',').Append(Csv(DriverOf(s, l))).Append(',').Append(Csv(l.FileName)).Append(',')
                       .Append(l.Type == LapType.Normal && l.Valid ? l.LapNo.ToString(CultureInfo.InvariantCulture) : "").Append(',')
                       .Append(type).Append(',').Append(l.Valid ? "1" : "0").Append(',')
                       .Append(epoch.AddSeconds(l.StartT + jstOffsetHours * 3600).ToString("HH:mm:ss", CultureInfo.InvariantCulture));
@@ -584,7 +611,9 @@ namespace Tk2Gui
                         else if (l.IsSessionBestSector[k]) bs.Add(res.SectorNames[k] + "s");
                     sb.Append(',').Append(string.Join(" ", bs))
                       .Append(',').Append(l.IsBestMax ? "*" : l.IsSessionBestMax ? "s" : "")
-                      .Append(',').Append(Csv(l.Note)).Append("\r\n");
+                      .Append(',').Append(Csv(l.Note));
+                    if (res.IsGymkhana) sb.Append(',').Append(Sec(l.Gap)).Append(',').Append(Csv(l.Memo));
+                    sb.Append("\r\n");
                 }
             }
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));

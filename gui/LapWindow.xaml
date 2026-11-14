@@ -60,15 +60,15 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Text="停止とみなす秒数" VerticalAlignment="Center" Margin="0,0,8,6"
+                        <TextBlock Name="PitStopLabel" Text="停止とみなす秒数" VerticalAlignment="Center" Margin="0,0,8,6"
                                    ToolTip="この秒数以上止まっていたら、ピットイン (ドライバー交代など) として新しいセッションにします"/>
                         <TextBox Grid.Column="1" Name="PitStopBox" Text="30" Width="60" HorizontalAlignment="Left" Margin="0,0,0,6"
                                  ToolTip="この秒数以上止まっていたら、ピットイン (ドライバー交代など) として新しいセッションにします"/>
-                        <TextBlock Grid.Row="1" Text="通過の最低速度 (km/h)" VerticalAlignment="Center" Margin="0,0,8,6"
+                        <TextBlock Grid.Row="1" Name="MinSpeedLabel" Text="通過の最低速度 (km/h)" VerticalAlignment="Center" Margin="0,0,8,6"
                                    ToolTip="これより遅い通過は無視します (停止中の GPS のふらつきで、ラインを通ったと誤検出しないため)"/>
                         <TextBox Grid.Row="1" Grid.Column="1" Name="MinSpeedBox" Text="8" Width="60" HorizontalAlignment="Left" Margin="0,0,0,6"
                                  ToolTip="これより遅い通過は無視します (停止中の GPS のふらつきで、ラインを通ったと誤検出しないため)"/>
-                        <TextBlock Grid.Row="2" Text="遅い周回の倍率" VerticalAlignment="Center" Margin="0,0,8,6"
+                        <TextBlock Grid.Row="2" Name="SlowLapLabel" Text="遅い周回の倍率" VerticalAlignment="Center" Margin="0,0,8,6"
                                    ToolTip="周回タイムがセッションの中央値のこの倍を超える周回を「遅い周回」(スピン・コースアウトなど) とし、ベストから外します。小さいほど厳しい判定です。どれかの区間が通常の 1.5 倍を超える周回も遅い周回にします"/>
                         <TextBox Grid.Row="2" Grid.Column="1" Name="SlowLapBox" Text="1.25" Width="60" HorizontalAlignment="Left" Margin="0,0,0,6"
                                  ToolTip="周回タイムがセッションの中央値のこの倍を超える周回を「遅い周回」(スピン・コースアウトなど) とし、ベストから外します。小さいほど厳しい判定です。どれかの区間が通常の 1.5 倍を超える周回も遅い周回にします"/>
@@ -89,9 +89,9 @@
                     </StackPanel>
                 </GroupBox>
 
-                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"
+                <TextBlock Name="MarkHelp" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"
                            Text="マーク: ★ = 全セッション通しての最速 (ラップ・区間・最高速), ※ = そのセッション内での最速。最高速は 1 周の中で出た最高の km/h です。"/>
-                <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap"
+                <TextBlock Name="SectorHelp" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap"
                            Text="区間: S1 = コントロール → Sector1, S2 = Sector1 → Sector2, ... 最後の区間はコントロールラインで終わります。アウトラップは最初に通ったラインから計測し、ラップタイムは出しません。"/>
             </StackPanel>
         </ScrollViewer>
@@ -133,6 +133,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <WrapPanel Orientation="Horizontal" Margin="0,0,0,4">
                         <CheckBox Name="AllCheck" VerticalAlignment="Center" Checked="AllCheck_Changed" Unchecked="AllCheck_Changed"
@@ -141,13 +142,20 @@
                         <Button Content="すべて展開" Click="ExpandAll_Click" Padding="8,2" Margin="0,0,0,2"/>
                         <Button Content="▶ 選んだ周回を比較再生..." Click="Replay_Click" Margin="16,0,0,2" Padding="10,2" FontWeight="Bold"
                                 ToolTip="周回表で選んだ周回 (Ctrl / Shift で複数選択) を、コースの上で同時に走らせて比較します。ログが必要です"/>
+                        <Button Content="距離ごとに比較..." Click="Compare_Click" Margin="10,0,0,2" Padding="10,2"
+                                ToolTip="選んだ周回・走行 (Ctrl / Shift で複数選択) の速度と、いちばん速いものとのタイム差を、スタートからの距離ごとのグラフで比べます。どこで差がついたかが分かります。ログが必要です"/>
+                        <CheckBox Name="SortCheck" Visibility="Collapsed" VerticalAlignment="Center" Margin="12,0,0,2" Checked="AllCheck_Changed" Unchecked="AllCheck_Changed"
+                                  Content="タイム順 (全ログ)" ToolTip="全ログの走行を 1 つの表にして、タイムの速い順に並べます (ベストの対象の走行に順位。ミスコース・DNF は後ろ)"/>
+                        <Button Content="動画素材を書き出す..." Click="Overlay_Click" Margin="10,0,0,2" Padding="10,2"
+                                ToolTip="選んだセッション (セッション一覧か周回表で選ぶ) の速度計・G・コース図・ラップ表を、透明付きの動画 (ProRes 4444) に書き出します。DaVinci Resolve などで走行動画に重ねて使います。ログが必要です"/>
                     </WrapPanel>
                     <l:QuietDataGrid Grid.Row="1" x:Name="LapGrid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
                               SelectionMode="Extended" SelectionUnit="FullRow" HeadersVisibility="Column" GridLinesVisibility="Horizontal" LoadingRow="LapGrid_LoadingRow"
-                              MouseLeftButtonUp="LapGrid_MouseLeftButtonUp" PreviewMouseRightButtonDown="LapGrid_PreviewRightDown">
+                              MouseLeftButtonUp="LapGrid_MouseLeftButtonUp" PreviewMouseRightButtonDown="LapGrid_PreviewRightDown" SelectionChanged="LapGrid_SelectionChanged">
                         <l:QuietDataGrid.ContextMenu>
                             <ContextMenu Opened="LapMenu_Opened">
                                 <MenuItem Header="選んだ周回を比較再生..." Click="Replay_Click"/>
+                                <MenuItem Header="選んだ周回を距離ごとに比較..." Click="Compare_Click"/>
                                 <Separator/>
                                 <MenuItem x:Name="SplitItem" Header="この周回の前でセッションを分割" Click="Split_Click"/>
                                 <MenuItem x:Name="MergeItem" Header="前のセッションと結合" Click="Merge_Click"/>
@@ -156,6 +164,35 @@
                             </ContextMenu>
                         </l:QuietDataGrid.ContextMenu>
                     </l:QuietDataGrid>
+
+                    <!-- ジムカーナ: 選んだ走行のメモ・ドライバー・印 (自動で保存。タイムには反映しない) -->
+                    <Border Grid.Row="2" Name="RunEditPanel" Visibility="Collapsed" Margin="0,6,0,0" Padding="8,6"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                        <StackPanel>
+                            <TextBlock Name="RunEditTitle" FontWeight="SemiBold" Margin="0,0,0,4"
+                                       Text="走行一覧で走行を 1 本選ぶと、メモ・ドライバー・印を入力できます (自動で保存)"/>
+                            <WrapPanel Name="RunEditFields" IsEnabled="False">
+                                <TextBlock Text="ドライバー" VerticalAlignment="Center" Margin="0,0,6,4"/>
+                                <TextBox Name="RunDriverBox" Width="120" Margin="0,0,14,4" LostFocus="RunEdit_LostFocus" KeyDown="RunEdit_KeyDown"
+                                         ToolTip="この走行だけのドライバー (1 台を何人かで乗るとき)。空ならセッションのドライバー"/>
+                                <TextBlock Text="メモ" VerticalAlignment="Center" Margin="0,0,6,4"/>
+                                <TextBox Name="RunMemoBox" Width="300" Margin="0,0,8,4" LostFocus="RunEdit_LostFocus" KeyDown="RunEdit_KeyDown"
+                                         ToolTip="自由に書けます。タイムには反映しません。表と CSV に出します"/>
+                                <Button Content="パイロンタッチ +1" Tag="pylon" Click="RunMemoItem_Click" Padding="8,2" Margin="0,0,4,4"/>
+                                <Button Content="脱輪" Tag="脱輪" Click="RunMemoItem_Click" Padding="8,2" Margin="0,0,4,4"/>
+                                <Button Content="ミスコース" Tag="ミスコース" Click="RunMemoItem_Click" Padding="8,2" Margin="0,0,4,4"
+                                        ToolTip="メモに書くだけです。ベストから外すときは右の「印」を「ミスコース扱い」にします"/>
+                                <Button Content="スピン" Tag="スピン" Click="RunMemoItem_Click" Padding="8,2" Margin="0,0,14,4"/>
+                                <TextBlock Text="印" VerticalAlignment="Center" Margin="0,0,6,4"/>
+                                <ComboBox Name="RunMarkCombo" Width="230" Margin="0,0,0,4" SelectionChanged="RunMark_Changed"
+                                          ToolTip="自動 = 通過の判定どおり。有効 = ミスコースの疑いでもベストの対象にする。ミスコース扱い = ベストの対象から外す">
+                                    <ComboBoxItem Content="自動 (通過の判定どおり)"/>
+                                    <ComboBoxItem Content="有効 (ベストの対象にする)"/>
+                                    <ComboBoxItem Content="ミスコース扱い (ベストの対象外)"/>
+                                </ComboBox>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
                 </Grid>
             </Expander>
         </Grid>

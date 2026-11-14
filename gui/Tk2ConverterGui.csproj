@@ -22,12 +22,14 @@
     <Resource Include="AppIcon.ico" />
     <!-- 既定設定 (コンソール版と共通)。exe と同じフォルダにコピーされる -->
     <None Include="..\tk2nmea.ini" Link="tk2nmea.ini" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 動画素材の既定のレイアウト -->
+    <None Include="overlay_default.ini" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- バージョン: Major.Minor.Build はここを直接編集して手動で管理する。リビジョン (4 桁目) はビルドのたびに 1 つ増やす (revision.txt)。
        WPF の XAML コンパイル用の一時プロジェクト (*_wpftmp.csproj) でも走って二重に増えるため、本体のときだけ実行する -->
   <PropertyGroup>
-    <VersionMajorMinorBuild>1.1.0</VersionMajorMinorBuild>
+    <VersionMajorMinorBuild>1.2.0</VersionMajorMinorBuild>
     <RevisionFile>$(MSBuildProjectDirectory)\revision.txt</RevisionFile>
   </PropertyGroup>
 

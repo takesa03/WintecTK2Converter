@@ -50,28 +50,48 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="コース名" VerticalAlignment="Center" Margin="0,0,8,6"/>
-                        <TextBox Grid.Row="0" Grid.Column="1" Name="NameBox" Text="Rainbow Sports" Margin="0,0,0,6"/>
-                        <TextBlock Grid.Row="1" Text="速度の下限 (km/h)" VerticalAlignment="Center" Margin="0,0,8,6"
+                        <TextBlock Grid.Row="0" Text="種類" VerticalAlignment="Center" Margin="0,0,8,6"/>
+                        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
+                            <RadioButton Name="CircuitRadio" Content="サーキット" IsChecked="True" Margin="0,0,14,0" Checked="Mode_Checked"
+                                         ToolTip="同じ所を何周もするコース。周回を平均化して中心線を作ります"/>
+                            <RadioButton Name="GymkhanaRadio" Content="ジムカーナ" Checked="Mode_Checked"
+                                         ToolTip="スタートとフィニッシュが別の所にあるコース。走行を 1 本ずつ切り出し、1 本を基準にして中心線を作ります"/>
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Text="コース名" VerticalAlignment="Center" Margin="0,0,8,6"/>
+                        <TextBox Grid.Row="1" Grid.Column="1" Name="NameBox" Text="Rainbow Sports" Margin="0,0,0,6"/>
+                        <TextBlock Grid.Row="2" Name="MinSpeedLabel" Text="速度の下限 (km/h)" VerticalAlignment="Center" Margin="0,0,8,6"
                                    ToolTip="これより遅い点 (ピット・停止・低速でばらつきが大きい点) は使いません"/>
-                        <TextBox Grid.Row="1" Grid.Column="1" Name="MinSpeedBox" Text="18" Width="70" HorizontalAlignment="Left" Margin="0,0,0,6"
+                        <TextBox Grid.Row="2" Grid.Column="1" Name="MinSpeedBox" Text="18" Width="70" HorizontalAlignment="Left" Margin="0,0,0,6"
                                  ToolTip="これより遅い点 (ピット・停止・低速でばらつきが大きい点) は使いません"/>
-                        <TextBlock Grid.Row="2" Text="周回の所要時間倍率" VerticalAlignment="Center" Margin="0,0,8,6"
+                        <TextBlock Grid.Row="3" Name="LapRatioLabel" Text="周回の所要時間倍率" VerticalAlignment="Center" Margin="0,0,8,6"
                                    ToolTip="周回の所要時間の中央値のこの倍を超える周回 (ピットイン・スピン等) は使いません"/>
-                        <TextBox Grid.Row="2" Grid.Column="1" Name="LapRatioBox" Text="1.2" Width="70" HorizontalAlignment="Left" Margin="0,0,0,6"
+                        <TextBox Grid.Row="3" Grid.Column="1" Name="LapRatioBox" Text="1.2" Width="70" HorizontalAlignment="Left" Margin="0,0,0,6"
                                  ToolTip="周回の所要時間の中央値のこの倍を超える周回 (ピットイン・スピン等) は使いません"/>
-                        <Button Grid.Row="3" Grid.ColumnSpan="2" Name="AnalyzeButton" Content="解析する" FontWeight="Bold" Padding="20,8"
+                        <Button Grid.Row="4" Grid.ColumnSpan="2" Name="AnalyzeButton" Content="解析する" FontWeight="Bold" Padding="20,8"
                                 HorizontalAlignment="Left" Margin="0,4,0,0" Click="Analyze_Click"/>
                     </Grid>
+                </GroupBox>
+
+                <GroupBox Header="走行 (ジムカーナ)" Name="RunGroup" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,4"
+                                   Text="チェックした走行で、スタート・フィニッシュの位置を決めます。時間・距離はフィニッシュの目安 (最後に 30 km/h を超えた所) までです。"/>
+                        <ListBox Name="RunList" Height="130"/>
+                        <DockPanel Margin="0,6,0,0">
+                            <TextBlock Text="基準の走行" VerticalAlignment="Center" Margin="0,0,8,0"
+                                       ToolTip="中心線にする走行。途中で止まっていない、速い走行がおすすめです"/>
+                            <ComboBox Name="RefCombo" SelectionChanged="RefCombo_SelectionChanged"/>
+                        </DockPanel>
+                    </StackPanel>
                 </GroupBox>
 
                 <GroupBox Header="コントロールライン・セクター" Name="GateGroup" IsEnabled="False">
                     <StackPanel>
                         <ListBox Name="GateList" Height="112" SelectionChanged="GateList_SelectionChanged"/>
-                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,4"
-                                   Text="一覧で選んだラインだけを前後に動かせます (距離は中心線の始点から進行方向に測ります。+ で進行方向へ)。"/>
+                        <TextBlock Name="GateHelp" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,4"
+                                   Text="一覧で選んだラインだけを前後に動かせます (距離は中心線の始点から進行方向に測ります。+ で進行方向へ)。地図をクリックすると、いちばん近い所に置きます (近くを何度も通る所では、ホイールか Tab で候補を切り替え)。"/>
                         <DockPanel Margin="0,0,0,4">
                             <TextBox DockPanel.Dock="Right" Name="PosBox" Width="60" Margin="6,0,0,0" LostFocus="PosBox_LostFocus"
                                      ToolTip="選んだラインの位置 [m]"/>
@@ -83,9 +103,24 @@
                             <Button Content="−1 m" Click="Nudge_Click" Tag="-1" Padding="8,5" Margin="0,0,4,4"/>
                             <Button Content="+1 m" Click="Nudge_Click" Tag="1" Padding="8,5" Margin="0,0,4,4"/>
                             <Button Content="+5 m" Click="Nudge_Click" Tag="5" Padding="8,5" Margin="0,0,10,4"/>
-                            <Button Content="自動位置に戻す" Click="AutoPos_Click" Margin="0,0,0,4"
+                            <Button Name="AutoPosButton" Content="自動位置に戻す" Click="AutoPos_Click" Margin="0,0,0,4"
                                     ToolTip="コントロールラインは自動で決めた位置、セクターはコントロールラインから等間隔の位置に戻します"/>
                         </WrapPanel>
+                        <!-- ジムカーナ: 基準の走行の時刻・速度で置く (解析した直後だけ。保存済みの定義を開いたときは走行のデータがない) -->
+                        <StackPanel Name="GymPlacePanel" Visibility="Collapsed" Margin="0,0,0,6">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <TextBlock Text="スタートから" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox Name="TimeBox" Width="50" KeyDown="TimeBox_KeyDown"
+                                         ToolTip="基準の走行がスタートラインを通ってから何秒目の位置に置くか (車載動画を見ながら決める用)"/>
+                                <TextBlock Text="秒目" VerticalAlignment="Center" Margin="4,0,8,0"/>
+                                <Button Content="この時刻に置く" Click="PlaceAtTime_Click" Padding="8,2"/>
+                            </StackPanel>
+                            <DockPanel>
+                                <TextBlock Text="速度の極小点" VerticalAlignment="Center" Margin="0,0,8,0"
+                                           ToolTip="基準の走行で速度が落ちた所 (サイドターン・スラロームなど)。選ぶと、選んだラインをそこに置きます"/>
+                                <ComboBox Name="MinimaCombo" SelectionChanged="MinimaCombo_SelectionChanged"/>
+                            </DockPanel>
+                        </StackPanel>
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -97,7 +132,7 @@
                             <TextBlock Text="セクター数" VerticalAlignment="Center" Margin="0,0,8,6"/>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
                                 <TextBox Name="SectorBox" Text="3" Width="40"/>
-                                <Button Content="等間隔に配置し直す" Click="Regen_Click" Margin="8,0,0,0"
+                                <Button Name="RegenButton" Content="等間隔に配置し直す" Click="Regen_Click" Margin="8,0,0,0"
                                         ToolTip="セクターを指定の数だけ、コントロールラインから等間隔に置き直します (個別に動かした位置は失われます)"/>
                             </StackPanel>
                             <TextBlock Grid.Row="1" Text="ラインの片側 (m)" VerticalAlignment="Center" Margin="0,0,8,0"
@@ -127,11 +162,29 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <TextBlock Name="InfoText" Margin="0,0,0,6" TextWrapping="Wrap" Foreground="{StaticResource OkBrush}" FontWeight="Bold"
                        Text="走行ログを追加して「解析する」を押してください"/>
             <Border Grid.Row="1" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#1E2228" ClipToBounds="True">
-                <Canvas Name="Preview" SizeChanged="Preview_SizeChanged"/>
+                <Grid>
+                    <Canvas Name="Preview" SizeChanged="Preview_SizeChanged" Background="Transparent" Cursor="Cross"
+                            MouseLeftButtonDown="Preview_MouseLeftButtonDown" MouseWheel="Preview_MouseWheel"/>
+                    <TextBlock Name="PickText" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12,0,0,40" Padding="6,2" FontSize="12"
+                               Foreground="White" Background="#B0000000" IsHitTestVisible="False" Visibility="Collapsed" TextWrapping="Wrap" MaxWidth="560"/>
+                    <CheckBox Name="PhotoCheck" Content="航空写真" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,8,0"
+                              Checked="Photo_Changed" Unchecked="Photo_Changed"
+                              ToolTip="背景に国土地理院の航空写真を出します (初回はインターネットから取得し、以後は保存したものを使います)。GPS の位置は数 m ずれることがあります"/>
+                    <TextBlock Name="PhotoCredit" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,4" Padding="4,1" FontSize="11"
+                               Foreground="White" Background="#80000000" IsHitTestVisible="False" Visibility="Collapsed"
+                               Text="出典: 国土地理院 (地理院タイル・全国最新写真 (シームレス))"/>
+                </Grid>
+            </Border>
+            <!-- ジムカーナ: 基準の走行の「距離 → 速度」(クリックで、選んだラインをその距離に置く) -->
+            <Border Grid.Row="2" Name="GraphBorder" Visibility="Collapsed" Height="150" Margin="0,6,0,0"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Background="#1E2228" ClipToBounds="True">
+                <Canvas Name="SpeedGraph" Background="Transparent" Cursor="Cross" SizeChanged="SpeedGraph_SizeChanged"
+                        MouseLeftButtonDown="SpeedGraph_MouseLeftButtonDown" MouseMove="SpeedGraph_MouseMove" MouseLeave="SpeedGraph_MouseLeave"/>
             </Border>
         </Grid>
 

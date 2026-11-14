@@ -34,6 +34,9 @@ namespace Tk2Gui
         public string Start { get; set; }
         public string[] Sectors { get; set; }
         public string LapTime { get; set; }
+        public string Gap { get; set; }        // ジムカーナ: ベストとの差
+        public string Driver { get; set; }     // ジムカーナ: この走行のドライバー
+        public string Memo { get; set; }       // ジムカーナ: メモ
         public string MaxKmh { get; set; }
         string _note;
         // 備考が変わったときは、その行の表示だけを更新する (表全体を作り直さない)
@@ -131,6 +134,13 @@ namespace Tk2Gui
                     try { SetCourse(CourseDefinition.Load(v), v); Log("前回のコース定義を開きました: " + v); } catch (Exception) { }
                 }
             });
+            // 走行ログの一覧。ログを指定せずに開いたときは、前回の一覧 (残っているファイルだけ) を並べる
+            st.Custom("LastLogs", () => string.Join("|", FileList.Items.Cast<string>()), v =>
+            {
+                if (FileList.Items.Count == 0 && !string.IsNullOrEmpty(v))
+                    foreach (string f in v.Split('|'))
+                        if (System.IO.File.Exists(f)) AddFile(f);
+            });
             Settings.Track(this, "LapWindow", st.SaveAll);
             UpdateButtons();
         }
@@ -143,8 +153,11 @@ namespace Tk2Gui
         {
             _def = def;
             if (!string.IsNullOrEmpty(label) && label.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(label)) _coursePath = label;
-            CourseText.Text = string.Format(Inv, "{0}\n周長 {1:F0} m / ライン {2} 本{3}", def.Name, def.LengthM, def.Gates.Count,
-                string.IsNullOrEmpty(label) ? "" : "\n" + label);
+            CourseText.Text = string.Format(Inv, "{0}\n{4} {1:F0} m / ライン {2} 本{3}", def.Name, def.LengthM, def.Gates.Count,
+                string.IsNullOrEmpty(label) ? "" : "\n" + label, def.IsGymkhana ? "ジムカーナ  中心線" : "周長");
+            // サーキットだけの設定 (セッションの分け方・通過の速度・遅い周回)。ジムカーナは向き・順番・走行距離で判定するので使わない
+            Visibility circuitOnly = def.IsGymkhana ? Visibility.Collapsed : Visibility.Visible;
+            PitStopLabel.Visibility = PitStopBox.Visibility = MinSpeedLabel.Visibility = MinSpeedBox.Visibility = SlowLapLabel.Visibility = SlowLapBox.Visibility = circuitOnly;
             UpdateButtons();
         }
 
@@ -208,7 +221,16 @@ namespace Tk2Gui
             if (ext != ".tk2" && ext != ".nmea" && ext != ".txt" && ext != ".log") return;
             if (!FileList.Items.Cast<string>().Any(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase)))
                 FileList.Items.Add(path);
+            SaveLogList();
             UpdateButtons();
+        }
+
+        // 走行ログの一覧は、変えたときにすぐ保存する (閉じる処理を通らずに終わっても残るように)
+        void SaveLogList()
+        {
+            if (_readOnly) return;
+            Settings.Set("Lap.LastLogs", string.Join("|", FileList.Items.Cast<string>()));
+            Settings.Save();
         }
 
         void Window_DragOver(object sender, DragEventArgs e)
@@ -244,6 +266,7 @@ namespace Tk2Gui
         void RemoveFile_Click(object sender, RoutedEventArgs e)
         {
             foreach (object o in FileList.SelectedItems.Cast<object>().ToList()) FileList.Items.Remove(o);
+            SaveLogList();
             UpdateButtons();
         }
 
@@ -271,7 +294,7 @@ namespace Tk2Gui
             }
             List<string> paths = FileList.Items.Cast<string>().ToList();
             CourseDefinition def = _def;
-            int restored = 0;
+            int restored = 0, runsRestored = 0;
             _busy = true; UpdateButtons();
             InfoText.Foreground = Theme.Ok;
             InfoText.Text = "解析中...";
@@ -290,6 +313,11 @@ namespace Tk2Gui
                     prm.Edits = _edits.ToDictionary(kv => kv.Key, kv => kv.Value);
                     LapAnalysis r = LapAnalyzer.Analyze(def, files, paths, prm);
                     restored = DriverStore.Apply(r);        // 保存してあるドライバー名を復元 (ファイルを読むので裏で行う)
+                    if (r.IsGymkhana)
+                    {
+                        runsRestored = RunStore.Apply(r);   // ジムカーナ: 走行ごとのメモ・ドライバー・印を復元し、印を反映してベストを計算し直す
+                        LapAnalyzer.RecomputeGymkhana(r);
+                    }
                     return r;
                 });
                 long msCalc = swAll.ElapsedMilliseconds;
@@ -297,6 +325,7 @@ namespace Tk2Gui
                 _readOnly = false;
                 foreach (string l in res.Log) Log(l);
                 if (restored > 0) Log(string.Format("ドライバー名を復元: {0} セッション", restored));
+                if (runsRestored > 0) Log(string.Format("走行のメモ・ドライバー・印を復元: {0} 本", runsRestored));
                 ShowResult();
                 Log(string.Format("所要時間: 解析 {0} ms / 表示 {1} ms", msCalc, swAll.ElapsedMilliseconds - msCalc));
                 if (focusT.HasValue) ScrollToTime(focusT.Value);
@@ -321,9 +350,220 @@ namespace Tk2Gui
 
 
 
+        // ================= ジムカーナ: 走行のメモ・ドライバー・印 =================
+
+        LapRecord _editRun;          // 編集欄に出している走行
+        bool _loadingRunEdit;        // 編集欄に値を入れている間 (変更のイベントを無視する)
+
+        void LapGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_res == null || !_res.IsGymkhana) return;
+            CommitRunEdit();         // 前の走行の入力中の内容を確定
+            LapRow r = LapGrid.SelectedItems.Count == 1 ? LapGrid.SelectedItem as LapRow : null;
+            ShowRunEdit(r != null && !r.IsHeader && r.Rec != null && r.Rec.IsGymRun ? r : null);
+        }
+
+        void ShowRunEdit(LapRow r)
+        {
+            _loadingRunEdit = true;
+            try
+            {
+                _editRun = r == null ? null : r.Rec;
+                if (_editRun == null)
+                {
+                    RunEditTitle.Text = "走行一覧で走行を 1 本選ぶと、メモ・ドライバー・印を入力できます (自動で保存。タイムには反映しません)";
+                    RunDriverBox.Text = ""; RunMemoBox.Text = ""; RunMarkCombo.SelectedIndex = -1;
+                    RunEditFields.IsEnabled = false;
+                    return;
+                }
+                RunEditTitle.Text = string.Format(Inv, "Session {0} / {1}  {2}{3}", r.Sess.No, r.Rec.Label, r.LapTime,
+                    _readOnly ? "   [CSV 表示中のため編集できません]" : "");
+                RunDriverBox.Text = _editRun.RunDriver ?? "";
+                RunMemoBox.Text = _editRun.Memo ?? "";
+                RunMarkCombo.SelectedIndex = _editRun.Mark == LapRecord.MarkValid ? 1 : _editRun.Mark == LapRecord.MarkMiss ? 2 : 0;
+                RunEditFields.IsEnabled = !_readOnly;
+            }
+            finally { _loadingRunEdit = false; }
+        }
+
+        void RunEdit_LostFocus(object sender, RoutedEventArgs e)
+        {
+            CommitRunEdit();
+        }
+
+        void RunEdit_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter) { CommitRunEdit(); e.Handled = true; }
+        }
+
+        void RunMemoItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (_editRun == null || _readOnly) return;
+            string tag = (string)((Button)sender).Tag;
+            RunMemoBox.Text = tag == "pylon" ? RunStore.AddPylon(RunMemoBox.Text) : RunStore.AddItem(RunMemoBox.Text, tag);
+            CommitRunEdit();
+        }
+
+        void RunMark_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loadingRunEdit || _editRun == null || _readOnly || RunMarkCombo.SelectedIndex < 0) return;
+            string mark = RunMarkCombo.SelectedIndex == 1 ? LapRecord.MarkValid : RunMarkCombo.SelectedIndex == 2 ? LapRecord.MarkMiss : null;
+            if (mark == _editRun.Mark) return;
+            _editRun.Mark = mark;
+            CommitRunEdit(true);
+        }
+
+        /// <summary>編集欄の内容を走行に入れ、表を更新して保存する。recompute = 印が変わった (ベストを計算し直す)。</summary>
+        void CommitRunEdit(bool recompute = false)
+        {
+            if (_loadingRunEdit || _editRun == null || _readOnly || _res == null) return;
+            string drv = RunDriverBox.Text.Trim(), memo = RunMemoBox.Text.Trim();
+            if (!recompute && drv == (_editRun.RunDriver ?? "") && memo == (_editRun.Memo ?? "")) return;
+            if (drv != (_editRun.RunDriver ?? "")) recompute = true;     // ※ はドライバー別のベストなので、計算し直す
+            _editRun.RunDriver = drv;
+            _editRun.Memo = memo;
+            LapRecord keep = _editRun;
+            if (recompute)
+            {
+                LapAnalyzer.RecomputeGymkhana(_res);
+                ShowInfoOnly();
+                List<SessionRow> srows = SessionGrid.ItemsSource as List<SessionRow>;
+                if (srows != null) { foreach (SessionRow sr in srows) FillSessionRow(sr); SessionGrid.Items.Refresh(); }
+            }
+            // 表を作り直して、同じ走行を選び直す
+            _loadingRunEdit = true;
+            try
+            {
+                RefreshLaps();
+                LapRow again = (LapGrid.ItemsSource as List<LapRow>).FirstOrDefault(x => ReferenceEquals(x.Rec, keep));
+                if (again != null) { LapGrid.SelectedItem = again; LapGrid.ScrollIntoView(again); }
+            }
+            finally { _loadingRunEdit = false; }
+            LapRow sel = LapGrid.SelectedItem as LapRow;
+            if (sel != null && ReferenceEquals(sel.Rec, keep)) ShowRunEdit(sel);
+
+            List<RunStore.Snapshot> snaps = RunStore.MakeSnapshots(_res);
+            _saveChain = _saveChain.ContinueWith(_ =>
+            {
+                List<string> saved = RunStore.Write(snaps);
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (saved.Count > 0) Log("走行のメモ・ドライバー・印を保存: " + string.Join(", ", saved.Select(System.IO.Path.GetFileName)));
+                }));
+            });
+        }
+
+        // ================= 距離ごとの比較 =================
+
+        async void Compare_Click(object sender, RoutedEventArgs e)
+        {
+            if (_busy) return;
+            if (_readOnly)
+            {
+                MessageBox.Show(this, "CSV を表示しているときは、ログがないので比較できません。ログとコース定義から「解析する」を押してください。", "比較できません", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (_res == null || _def == null) return;
+            List<LapRow> rows = LapGrid.SelectedItems.Cast<LapRow>().Where(r => r.Rec != null && r.Sess != null && !string.IsNullOrEmpty(r.Sess.FilePath)).ToList();
+            List<LapRow> ok = rows.Where(r => r.Rec.Type == LapType.Normal && r.Rec.Valid && r.Rec.LapTime.HasValue).ToList();
+            if (ok.Count == 0)
+            {
+                MessageBox.Show(this, "比べる周回・走行を、表で選んでください (Ctrl や Shift を押しながらクリックで複数選択)。\nタイムのない周回・走行 (OUT・未完・DNF・無効) は比べられません。", "周回を選んでください", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            int max = ReplayWindow.Palette.Length;
+            if (ok.Count > max) { Log(string.Format("比較は最大 {0} 本までです。選んだ順の先頭 {0} 本を比べます", max)); ok = ok.Take(max).ToList(); }
+
+            CourseDefinition def = _def;
+            _busy = true; UpdateButtons();
+            InfoText.Text = "比較の準備中...";
+            try
+            {
+                List<CompareRun> runs = await Task.Run(() =>
+                {
+                    List<CompareRun> list = new List<CompareRun>();
+                    int ci = 0;
+                    foreach (LapRow r in ok)
+                    {
+                        string path = r.Sess.FilePath;
+                        List<GpsSample> g;
+                        lock (_gps)
+                        {
+                            if (!_gps.TryGetValue(path, out g)) { g = GpsLoader.Load(path); _gps[path] = g; }
+                        }
+                        string drv = LapAnalyzer.DriverOf(r.Sess, r.Rec);
+                        string name = (r.Rec.IsGymRun ? "S" + r.Sess.No + " / " + r.Rec.LapNo + "本目" : "S" + r.Sess.No + " / Lap " + r.Rec.LapNo) + (drv.Length > 0 ? "  " + drv : "");
+                        list.Add(RunCompare.Build(def, g, r.Rec.StartT, r.Rec.LapTime.Value, r.Rec.Sector, name, ReplayWindow.Palette[ci++]));
+                    }
+                    return list;
+                });
+                CompareWindow w = new CompareWindow(def, runs);
+                w.Owner = this;
+                w.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "比較できませんでした", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                _busy = false; UpdateButtons();
+                if (_res != null) ShowInfoOnly();
+            }
+        }
+
         // ================= 周回の比較再生 =================
 
         readonly Dictionary<string, List<GpsSample>> _gps = new Dictionary<string, List<GpsSample>>(StringComparer.OrdinalIgnoreCase);   // 読み込んだログ (再生のたびに読み直さない)
+
+        // 選んだセッションの動画素材 (速度計・G・コース図・ラップ表) を書き出す
+        async void Overlay_Click(object sender, RoutedEventArgs e)
+        {
+            if (_busy) return;
+            if (_readOnly)
+            {
+                MessageBox.Show(this, "CSV を表示しているときは、ログがないので書き出せません。ログとコース定義から「解析する」を押してください。", "書き出せません", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (_res == null || _def == null) return;
+            SessionRecord sess = null;
+            LapRow lr = LapGrid.SelectedItem as LapRow;
+            if (lr != null && lr.Sess != null) sess = lr.Sess;
+            SessionRow sr = SessionGrid.SelectedItem as SessionRow;
+            if (sess == null && sr != null) sess = sr.Rec;
+            if (sess == null && _res.Sessions.Count == 1) sess = _res.Sessions[0];
+            if (sess == null || string.IsNullOrEmpty(sess.FilePath))
+            {
+                MessageBox.Show(this, "書き出すセッションを、セッション一覧か周回表で選んでください。", "セッションを選んでください", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            CourseDefinition def = _def;
+            string path = sess.FilePath;
+            _busy = true; UpdateButtons();
+            try
+            {
+                List<GpsSample> g = await Task.Run(() =>
+                {
+                    List<GpsSample> list;
+                    lock (_gps)
+                    {
+                        if (!_gps.TryGetValue(path, out list)) { list = GpsLoader.Load(path); _gps[path] = list; }
+                    }
+                    return list;
+                });
+                OverlayExportWindow w = new OverlayExportWindow(def, sess, _res.SectorNames, g);
+                w.Owner = this;
+                w.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "書き出しの準備ができませんでした", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                _busy = false; UpdateButtons();
+            }
+        }
 
         // 周回表で選んだ周回 (複数可) を、コースの上で同時に走らせて比較する
         async void Replay_Click(object sender, RoutedEventArgs e)
@@ -363,9 +603,10 @@ namespace Tk2Gui
                         {
                             if (!_gps.TryGetValue(path, out g)) { g = GpsLoader.Load(path); _gps[path] = g; }
                         }
-                        string drv = r.Sess.Driver ?? "";
-                        string name = "Session " + r.Sess.No + " / Lap " + r.Rec.LapNo + (drv.Length > 0 ? "  (" + drv + ")" : "");
-                        string label = "S" + r.Sess.No + "-L" + r.Rec.LapNo + (drv.Length > 0 ? " " + drv : "");
+                        string drv = LapAnalyzer.DriverOf(r.Sess, r.Rec);
+                        string name = r.Rec.IsGymRun ? "Session " + r.Sess.No + " / " + r.Rec.LapNo + "本目" + (drv.Length > 0 ? "  (" + drv + ")" : "")
+                            : "Session " + r.Sess.No + " / Lap " + r.Rec.LapNo + (drv.Length > 0 ? "  (" + drv + ")" : "");
+                        string label = (r.Rec.IsGymRun ? "S" + r.Sess.No + "-" + r.Rec.LapNo + "本目" : "S" + r.Sess.No + "-L" + r.Rec.LapNo) + (drv.Length > 0 ? " " + drv : "");
                         list.Add(ReplayLap.Build(name, label, r.Rec.StartT, r.Rec.LapTime.Value, g, def.Lat0, def.Lon0, ReplayWindow.Palette[ci++]));
                     }
                     return list;
@@ -386,13 +627,18 @@ namespace Tk2Gui
         }
 
         // 解析結果の要約行を、元の表示に戻す
-        void ShowInfoOnly()
+        void ShowInfoOnly(bool withReadOnly = true)
         {
             string best = (_res.BestLap.HasValue ? "全体のベスト " + LapAnalyzer.FormatTime(_res.BestLap) : "ベストラップなし")
+                + (_res.TheoreticalBest.HasValue ? " / 理論ベスト " + LapAnalyzer.FormatTime(_res.TheoreticalBest) : "")
                 + (_res.BestMaxKmh.HasValue ? " / 最高速 " + _res.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "");
             InfoText.Foreground = Theme.Ok;
-            InfoText.Text = string.Format(Inv, "{0} セッション / {1} 周 / {2}", _res.Sessions.Count, _res.Sessions.Sum(s => s.FullLaps), best);
-            if (_readOnly) InfoText.Text += "   [CSV 表示中・読み取り専用]";
+            if (_res.IsGymkhana)
+                InfoText.Text = string.Format(Inv, "{0} ログ / 走行 {1} 本 (完走 {2} 本) / {3}", _res.Sessions.Count, _res.Sessions.Sum(s => s.Laps.Count),
+                    _res.Sessions.Sum(s => s.Laps.Count(l => l.LapTime.HasValue)), best);
+            else
+                InfoText.Text = string.Format(Inv, "{0} セッション / {1} 周 / {2}", _res.Sessions.Count, _res.Sessions.Sum(s => s.FullLaps), best);
+            if (_readOnly && withReadOnly) InfoText.Text += "   [CSV 表示中・読み取り専用]";
         }
 
         // ================= セッションの編集 (分割・結合) =================
@@ -425,7 +671,7 @@ namespace Tk2Gui
             SessionRecord s = r == null ? null : r.Sess;
             bool canSplit = r != null && !r.IsHeader && r.Rec != null && s != null && s.Laps.IndexOf(r.Rec) > 0 && !string.IsNullOrEmpty(s.FilePath);
             SessionRecord prev = PreviousSessionInSameLog(s);
-            if (_readOnly) { canSplit = false; prev = null; }
+            if (_readOnly || _res == null || _res.IsGymkhana) { canSplit = false; prev = null; }     // ジムカーナは 1 ログ = 1 セッション (分割・結合なし)
             SplitItem.IsEnabled = canSplit;
             SplitItem.Header = canSplit ? "この周回 (" + r.Lap + ") の前でセッションを分割" : "この周回の前でセッションを分割 (周回の行を右クリック)";
             MergeItem.IsEnabled = prev != null;
@@ -527,39 +773,57 @@ namespace Tk2Gui
             // 周回表の区間の列を作り直す
             LapGrid.Columns.Clear();
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "Session", Binding = new System.Windows.Data.Binding("Session"), Width = 56 });
-            LapGrid.Columns.Add(new DataGridTextColumn { Header = "Lap", Binding = new System.Windows.Data.Binding("Lap"), Width = 118 });
+            bool gym = _res.IsGymkhana;
+            LapGrid.Columns.Add(new DataGridTextColumn { Header = gym ? "走行" : "Lap", Binding = new System.Windows.Data.Binding("Lap"), Width = 118 });
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "開始", Binding = new System.Windows.Data.Binding("Start"), Width = 70 });
             for (int k = 0; k < _res.SectorNames.Length; k++)
                 LapGrid.Columns.Add(MarkCol(_res.SectorNames[k], "Sectors[" + k.ToString(Inv) + "]", "S" + k.ToString(Inv), 72));
-            LapGrid.Columns.Add(MarkCol("ラップ", "LapTime", "LapTime", 90));
+            LapGrid.Columns.Add(MarkCol(gym ? "タイム" : "ラップ", "LapTime", "LapTime", 90));
+            if (gym) LapGrid.Columns.Add(new DataGridTextColumn { Header = "差", Binding = new System.Windows.Data.Binding("Gap"), Width = 64 });
+            if (gym) LapGrid.Columns.Add(new DataGridTextColumn { Header = "ドライバー", Binding = new System.Windows.Data.Binding("Driver"), Width = 90 });
             LapGrid.Columns.Add(MarkCol("最高 km/h", "MaxKmh", "MaxKmh", 80));
+            if (gym) LapGrid.Columns.Add(new DataGridTextColumn { Header = "メモ", Binding = new System.Windows.Data.Binding("Memo"), Width = 200 });
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "備考", Binding = new System.Windows.Data.Binding("Note"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+            RunEditPanel.Visibility = gym ? Visibility.Visible : Visibility.Collapsed;
+            SortCheck.Visibility = gym ? Visibility.Visible : Visibility.Collapsed;
+            if (!gym) SortCheck.IsChecked = false;
+            MarkHelp.Text = gym
+                ? "マーク: ★ = 全ログ通しての最速 (タイム・区間・最高速), ※ = そのドライバーの最速 (ドライバー名が無い走行はログごと)。ミスコース・DNF はベストの対象外です。"
+                : "マーク: ★ = 全セッション通しての最速 (ラップ・区間・最高速), ※ = そのセッション内での最速。最高速は 1 周の中で出た最高の km/h です。";
+            SectorHelp.Text = gym
+                ? "区間: S1 = Start → Sector1, S2 = Sector1 → Sector2, ... 最後の区間はフィニッシュで終わります。"
+                : "区間: S1 = コントロール → Sector1, S2 = Sector1 → Sector2, ... 最後の区間はコントロールラインで終わります。アウトラップは最初に通ったラインから計測し、ラップタイムは出しません。";
+            ShowRunEdit(null);
 
             List<SessionRow> rows = new List<SessionRow>();
             foreach (SessionRecord s in _res.Sessions)
             {
-                LapRecord first = s.Laps.FirstOrDefault();
-                rows.Add(new SessionRow
-                {
-                    Rec = s,
-                    Range = Clock(s.StartT) + " ～ " + Clock(s.EndT),
-                    Best = s.BestLap.HasValue ? LapAnalyzer.FormatTime(s.BestLap) : "-",
-                    BestMax = s.BestMaxKmh.HasValue ? s.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "-",
-                    StartKind = (first == null ? "" : first.Type == LapType.Out ? (first.StartGate == 0 ? "OUT (停止から発進)" : "OUT (Sector" + first.StartGate + " から計測)") : "走行中から")
-                        + (s.EditNote.Length > 0 ? "  [" + s.EditNote + "]" : "")
-                });
+                SessionRow row = new SessionRow { Rec = s, Range = Clock(s.StartT) + " ～ " + Clock(s.EndT) };
+                FillSessionRow(row);
+                rows.Add(row);
             }
             _collapsed.Clear();
             SessionGrid.ItemsSource = rows;
             SessionExp.Header = string.Format("セッション一覧 ({0} 件)", rows.Count);
+            LapExp.Header = gym ? "走行一覧" : "周回表";
+            ((DataGridTextColumn)SessionGrid.Columns[3]).Header = gym ? "走行" : "周回";
             if (rows.Count > 0) SessionGrid.SelectedIndex = 0;
 
-            string best = (_res.BestLap.HasValue ? "全体のベスト " + LapAnalyzer.FormatTime(_res.BestLap) : "ベストラップなし")
-                + (_res.BestMaxKmh.HasValue ? " / 最高速 " + _res.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "");
-            InfoText.Foreground = Theme.Ok;
-            InfoText.Text = string.Format(Inv, "{0} セッション / {1} 周 / {2}", _res.Sessions.Count, _res.Sessions.Sum(s => s.FullLaps), best);
+            ShowInfoOnly(false);
             RefreshLaps();
             UpdateButtons();
+        }
+
+        // セッション一覧の行のベスト・最高速・開始の欄 (ジムカーナで印を変えたときにも作り直す)
+        void FillSessionRow(SessionRow row)
+        {
+            SessionRecord s = row.Rec;
+            LapRecord first = s.Laps.FirstOrDefault();
+            row.Best = s.BestLap.HasValue ? LapAnalyzer.FormatTime(s.BestLap) : "-";
+            row.BestMax = s.BestMaxKmh.HasValue ? s.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "-";
+            row.StartKind = _res.IsGymkhana ? string.Format(Inv, "ジムカーナ (DNF {0} 本、ミスコースの疑い {1} 本)", s.Laps.Count(l => l.Dnf), s.Laps.Count(l => l.MissCourse))
+                : (first == null ? "" : first.Type == LapType.Out ? (first.StartGate == 0 ? "OUT (停止から発進)" : "OUT (Sector" + first.StartGate + " から計測)") : "走行中から")
+                    + (s.EditNote.Length > 0 ? "  [" + s.EditNote + "]" : "");
         }
 
         // ドライバー名を編集したら (確定した後で) 保存する。区切り行の表示にも反映する
@@ -582,6 +846,14 @@ namespace Tk2Gui
                             + (ms >= 500 ? string.Format("  (書き込みに {0:0.0} 秒かかりました: {1})", ms / 1000.0, System.IO.Path.GetDirectoryName(saved[0])) : ""));
                     }));
                 });
+                if (_res.IsGymkhana)
+                {
+                    // ジムカーナ: ※ はドライバー別のベストなので、計算し直して表を作り直す
+                    LapAnalyzer.RecomputeGymkhana(_res);
+                    ShowInfoOnly();
+                    RefreshLaps();
+                    return;
+                }
                 UpdateHeaderNotes();    // 区切り行のドライバー名だけを書き換える (周回表は作り直さない)
             }), System.Windows.Threading.DispatcherPriority.Background);
         }
@@ -616,6 +888,9 @@ namespace Tk2Gui
                 Start = Clock(l.StartT),
                 LapTime = LapAnalyzer.FormatTime(l.LapTime ?? l.PartialTime),
                 MaxKmh = l.MaxKmh > 0 ? l.MaxKmh.ToString("0.0", Inv) : "",
+                Gap = l.Gap.HasValue ? (Math.Abs(l.Gap.Value) < 0.0005 ? "-" : l.Gap.Value.ToString("+0.000;-0.000", Inv)) : "",     // ベストの対象外の走行はベストより速いこともある (−)
+                Driver = l.IsGymRun ? LapAnalyzer.DriverOf(sess, l) : "",
+                Memo = l.Memo ?? "",
                 Note = l.Note,
                 IsOut = l.Type == LapType.Out, IsInvalid = !l.Valid, IsBest = l.IsBestLap, IsIn = l.IsIn, IsSessionBest = l.IsSessionBestLap,
                 Sectors = new string[_res.SectorNames.Length]
@@ -633,7 +908,22 @@ namespace Tk2Gui
         {
             if (_res == null) { LapGrid.ItemsSource = null; return; }
             List<LapRow> list = new List<LapRow>();
-            if (AllCheck.IsChecked == true)
+            if (_res.IsGymkhana && SortCheck.IsChecked == true)
+            {
+                // タイム順 (全ログ): ベストの対象の走行に順位、その後にミスコース・タイムのない走行
+                List<KeyValuePair<SessionRecord, LapRecord>> all = _res.Sessions.SelectMany(s => s.Laps.Select(l => new KeyValuePair<SessionRecord, LapRecord>(s, l))).ToList();
+                List<KeyValuePair<SessionRecord, LapRecord>> ranked = all.Where(x => CountsForRank(x.Value)).OrderBy(x => x.Value.LapTime.Value).ToList();
+                List<KeyValuePair<SessionRecord, LapRecord>> rest = all.Where(x => !CountsForRank(x.Value))
+                    .OrderBy(x => x.Value.LapTime.HasValue ? 0 : 1).ThenBy(x => x.Value.LapTime ?? 0).ThenBy(x => x.Value.StartT).ToList();
+                for (int i = 0; i < ranked.Count; i++)
+                {
+                    LapRow r = ToRow(ranked[i].Value, ranked[i].Key);
+                    r.Lap = (i + 1) + "位  " + r.Lap;
+                    list.Add(r);
+                }
+                foreach (KeyValuePair<SessionRecord, LapRecord> x in rest) list.Add(ToRow(x.Value, x.Key));
+            }
+            else if (AllCheck.IsChecked == true)
             {
                 foreach (SessionRecord s in _res.Sessions)
                 {
@@ -647,6 +937,11 @@ namespace Tk2Gui
                 if (sel != null) list.AddRange(sel.Rec.Laps.Select(l => ToRow(l, sel.Rec)));
             }
             LapGrid.ItemsSource = list;
+        }
+
+        static bool CountsForRank(LapRecord l)
+        {
+            return l.Valid && l.LapTime.HasValue && !l.MissCourse && !l.Dnf;
         }
 
         LapRow Header(SessionRecord s)
@@ -668,9 +963,9 @@ namespace Tk2Gui
 
         string HeaderNote(SessionRecord s)
         {
-            return string.Format("{0}{1} ～ {2}  {5} 周  ベスト {3}  最高速 {4}{6}", s.Driver.Length > 0 ? "ドライバー: " + s.Driver + "   " : "", Clock(s.StartT), Clock(s.EndT),
+            return string.Format("{0}{1} ～ {2}  {5} {7}  ベスト {3}  最高速 {4}{6}", s.Driver.Length > 0 ? "ドライバー: " + s.Driver + "   " : "", Clock(s.StartT), Clock(s.EndT),
                 s.BestLap.HasValue ? LapAnalyzer.FormatTime(s.BestLap) : "-", s.BestMaxKmh.HasValue ? s.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "-", s.FullLaps,
-                s.EditNote.Length > 0 ? "  [" + s.EditNote + "]" : "");
+                s.EditNote.Length > 0 ? "  [" + s.EditNote + "]" : "", _res.IsGymkhana ? "本" : "周");
         }
 
         // 区切り行の備考 (ドライバー名を含む) だけを、現在の名前で書き換える

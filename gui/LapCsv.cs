@@ -50,8 +50,18 @@ namespace Tk2Gui
                     Sector = new double?[M], SectorMaxKmh = new double[M], SectorMinKmh = new double[M],
                     IsBestSector = new bool[M], IsSessionBestSector = new bool[M],
                     Type = type == "OUT" ? LapType.Out : type == "PARTIAL" ? LapType.Partial : type == "INCOMPLETE" ? LapType.Incomplete : LapType.Normal,
-                    IsIn = type == "IN"
+                    IsIn = type == "IN",
+                    // ジムカーナの走行 (RUN = 完走, DNF, MISS = ミスコースの疑い)
+                    IsGymRun = type == "RUN" || type == "DNF" || type == "MISS",
+                    Dnf = type == "DNF", MissCourse = type == "MISS"
                 };
+                if (l.IsGymRun)
+                {
+                    res.IsGymkhana = true;
+                    l.Memo = Get(r, h.IndexOf("Memo"));
+                    string drv = Get(r, iDriver);
+                    if (drv != (s.Driver ?? "")) l.RunDriver = drv;     // セッションの最初の走行と違うドライバー
+                }
                 int lapNo;
                 if (int.TryParse(Get(r, iLap), NumberStyles.Integer, Inv, out lapNo)) l.LapNo = lapNo;
                 TimeSpan ts;
@@ -104,6 +114,13 @@ namespace Tk2Gui
                     if (l.IsBestMax) res.BestMaxKmh = l.MaxKmh;
                     for (int k = 0; k < M; k++) if (l.IsBestSector[k] && l.Sector[k].HasValue) res.BestSector[k] = l.Sector[k];
                 }
+            if (res.IsGymkhana)
+            {
+                foreach (SessionRecord s in res.Sessions)
+                    foreach (LapRecord l in s.Laps)
+                        if (l.LapTime.HasValue && res.BestLap.HasValue) l.Gap = l.LapTime.Value - res.BestLap.Value;
+                if (M >= 2 && res.BestSector.All(b => b.HasValue)) res.TheoreticalBest = res.BestSector.Sum(b => b.Value);
+            }
             return res;
         }
 
