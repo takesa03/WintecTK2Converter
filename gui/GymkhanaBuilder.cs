@@ -99,7 +99,7 @@ namespace Tk2Gui
         public static GymkhanaData Detect(IList<List<GpsSample>> files, IList<string> sourceNames, GymkhanaParams prm)
         {
             GymkhanaData g = new GymkhanaData();
-            g.SourceNames = sourceNames.Select(Path.GetFileName).ToList();
+            g.SourceNames = sourceNames.Select(CourseBuilder.FullPathOf).ToList();   // コース定義の sources (フルパス)
             List<GpsSample> all = new List<GpsSample>();
             List<int> fileOf = new List<int>();
             for (int fi = 0; fi < files.Count; fi++)

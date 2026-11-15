@@ -49,6 +49,7 @@ namespace Tk2Gui
         public Point[] GTrail;               // 過去の G (古い順。最後が今)
 
         public int SessionNo;
+        public int HeatNo;                   // ジムカーナ: いま走っている (または最後に走った) 走行の番号。0 = まだ無い / サーキット
         public string Driver = "";
 
         public string LapTime;               // 走行中は経過時間、ラインを通った直後はその周回のタイム
@@ -81,10 +82,11 @@ namespace Tk2Gui
         readonly List<GpsSample> _gps;
         readonly double[] _t, _x, _y, _v, _alt, _lat, _lon, _cum;
         readonly List<LapRecord> _laps;
+        readonly LapRecord _only;            // 1 本だけ書き出すときの走行 (null = セッション全体)
         readonly Dictionary<string, ReplayLap> _ref = new Dictionary<string, ReplayLap>();
 
         public OverlayData(CourseDefinition def, SessionRecord sess, string[] sectorNames, List<GpsSample> gps, OverlayOptions opt,
-                           double beforeSec, double afterSec)
+                           double beforeSec, double afterSec, LapRecord only = null)
         {
             Def = def; Sess = sess; SectorNames = sectorNames; Opt = opt ?? new OverlayOptions(); _gps = gps;
             Lat0 = def.Lat0; Lon0 = def.Lon0;
@@ -116,14 +118,36 @@ namespace Tk2Gui
             _laps = sess.Laps.OrderBy(l => l.StartT).ToList();
             double s0 = _laps.Count > 0 ? _laps[0].StartT : sess.StartT;
             double s1 = _laps.Count > 0 ? _laps.Max(l => l.EndT) : sess.EndT;
-            StartT = Math.Max(_t[0], s0 - beforeSec);
-            EndT = Math.Min(_t[n - 1], s1 + afterSec);
+            // only を指定したら、その走行 (周回) の前後だけを書き出す。ベストなどの計算はセッション全体のまま
+            _only = only;
+            double r0 = only != null ? only.StartT : s0, r1 = only != null ? only.EndT : s1;
+            // サーキットのセッション全体: 最初のライン通過ではなく、その前の発進 (ピットを出る所) から
+            if (only == null && !def.IsGymkhana) r0 = Departure(s0);
+            StartT = Math.Max(_t[0], r0 - beforeSec);
+            EndT = Math.Min(_t[n - 1], r1 + afterSec);
             if (EndT <= StartT) EndT = StartT + 1;
 
             double mx = 0;
             for (int i = 0; i < n; i++) if (_t[i] >= s0 && _t[i] <= s1) mx = Math.Max(mx, _v[i]);
             if (sess.BestMaxKmh.HasValue) mx = Math.Max(mx, sess.BestMaxKmh.Value);
             MaxSpeedKmh = mx;
+        }
+
+        /// <summary>
+        /// 時刻 t0 から過去へさかのぼり、最後に止まっていた所 (3 km/h 未満、または記録の途切れ) の時刻。
+        /// ピットを出て最初のラインを通るまでを含めるため。15 分より前、ログの先頭まで止まっていなければその所まで
+        /// </summary>
+        double Departure(double t0)
+        {
+            int i = Array.BinarySearch(_t, t0);
+            if (i < 0) i = ~i;
+            i = Math.Min(i, _t.Length - 1);
+            while (i > 0 && t0 - _t[i] < 900)
+            {
+                if (_v[i] < 3 || _t[i] - _t[i - 1] > Opt.MaxGapSec) break;
+                i--;
+            }
+            return Math.Min(t0, _t[i]);
         }
 
         static double Sq(double v) { return v * v; }
@@ -354,22 +378,58 @@ namespace Tk2Gui
 
             st.SessionNo = Sess.No;
             st.Driver = Sess.Driver ?? "";
-            // ジムカーナ: 走行ごとのドライバーがあれば、いま走っている (または最後に走った) 走行の名前
-            LapRecord now = _laps.LastOrDefault(l => l.StartT <= t);
-            if (now != null && now.IsGymRun) st.Driver = LapAnalyzer.DriverOf(Sess, now);
+            // ジムカーナ: 表示する走行 (GymFocus) の番号と、走行ごとのドライバー
+            LapRecord focus = GymFocus(t);
+            if (focus != null) { st.HeatNo = focus.LapNo; st.Driver = LapAnalyzer.DriverOf(Sess, focus); }
             FillLap(st, t);
             FillSector(st, t);
             return st;
         }
 
-        void FillLap(OverlayState st, double t)
+        /// <summary>
+        /// ジムカーナで表示する走行。1 本だけ書き出すときはその走行。全体のときは、走行中ならその走行、
+        /// 走行と走行の間は近いほう (前の走行の終わりに近ければ前の走行の結果、次のスタートに近ければ次の走行)。サーキットは null
+        /// </summary>
+        LapRecord GymFocus(double t)
         {
-            LapRecord cur = null, done = null;   // 走行中の周回, 最後に走り終えた周回
+            if (!Def.IsGymkhana) return null;
+            if (_only != null) return _only;
+            LapRecord prev = null, next = null;
+            foreach (LapRecord l in _laps)
+            {
+                if (!l.IsGymRun) continue;
+                if (l.StartT <= t && t < l.EndT) return l;
+                if (l.EndT <= t) prev = l;
+                else if (next == null && l.StartT > t) next = l;
+            }
+            if (prev == null) return next;
+            if (next == null) return prev;
+            return next.StartT - t < t - prev.EndT ? next : prev;
+        }
+
+        /// <summary>周回 (走行) の選び方: 走行中の周回と、最後に走り終えた周回。ジムカーナは表示する走行だけ</summary>
+        void CurDone(double t, out LapRecord cur, out LapRecord done)
+        {
+            cur = null; done = null;
+            if (Def.IsGymkhana)
+            {
+                LapRecord f = GymFocus(t);
+                if (f == null) return;
+                if (f.StartT <= t && t < f.EndT) cur = f;
+                else if (f.EndT <= t) done = f;
+                return;      // スタート前は両方 null
+            }
             foreach (LapRecord l in _laps)
             {
                 if (l.StartT <= t && t < l.EndT) cur = l;
                 if (l.EndT <= t) done = l;
             }
+        }
+
+        void FillLap(OverlayState st, double t)
+        {
+            LapRecord cur, done;   // 走行中の周回, 最後に走り終えた周回
+            CurDone(t, out cur, out done);
             LapRecord bestNow = BestLapBefore(t);
             st.LapBest = bestNow != null ? FmtLap(bestNow.LapTime.Value) : "-'--.---";
 
@@ -392,7 +452,7 @@ namespace Tk2Gui
                 if (cur.Type == LapType.Normal && cur.Valid && cur.StartGate == 0 && cur.LapTime.HasValue && bestNow != null)
                     st.LapDelta = LiveDelta(LapRef(cur), LapRef(bestNow), el);
             }
-            else st.LapTime = "-'--.---";
+            else st.LapTime = Def.IsGymkhana ? FmtLap(0) : "-'--.---";     // ジムカーナのスタート前は 0'00.000
 
             foreach (LapRecord l in _laps)
             {
@@ -415,12 +475,8 @@ namespace Tk2Gui
                 st.SecBest[k] = best[k] != null ? FmtSec(best[k].Sector[k].Value) : "-";
             }
 
-            LapRecord cur = null, done = null;
-            foreach (LapRecord l in _laps)
-            {
-                if (l.StartT <= t && t < l.EndT) cur = l;
-                if (l.EndT <= t) done = l;
-            }
+            LapRecord cur, done;
+            CurDone(t, out cur, out done);
             // 今の周回の区間を出す。周回が変わった直後 (hold 秒) は、まだ通っていない区間の欄に前の周回の値と差分を残す
             if (cur != null) FillSectorRow(st, cur, t, best);
             if (done != null && (cur == null || t - done.EndT < Opt.SectorHoldSec)) FillSectorRow(st, done, t, best);

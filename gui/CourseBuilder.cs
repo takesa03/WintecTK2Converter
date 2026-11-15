@@ -317,6 +317,12 @@ namespace Tk2Gui
         }
 
         /// <summary>複数ファイルのサンプルを時刻順に連結し、ファイルの境目は欠測として扱う。</summary>
+        // コース定義の sources に書くパス (フルパス。変換できなければそのまま)
+        internal static string FullPathOf(string p)
+        {
+            try { return Path.GetFullPath(p); } catch { return p; }
+        }
+
         public static CourseResult Build(IList<List<GpsSample>> files, IList<string> sourceNames, CourseParams prm)
         {
             CourseResult res = new CourseResult();
@@ -406,7 +412,7 @@ namespace Tk2Gui
             CourseDefinition def = new CourseDefinition();
             def.Name = prm.Name;
             def.Created = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-            def.Sources = sourceNames.Select(Path.GetFileName).ToList();
+            def.Sources = sourceNames.Select(FullPathOf).ToList();   // 開き直したときに一覧へ戻せるようにフルパスで残す
             def.LengthM = L;
             double area = 0;
             for (int i = 0; i < reference.Count; i++)

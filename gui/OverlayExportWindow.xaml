@@ -46,7 +46,12 @@
                 </ComboBox>
                 <TextBlock Text="フレームレート" VerticalAlignment="Center" Margin="0,0,6,0"/>
                 <ComboBox Name="FpsCombo" Width="80" Margin="0,0,16,0"/>
-                <TextBlock Text="セッションの前" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <StackPanel Name="RangePanel" Orientation="Horizontal" Visibility="Collapsed">
+                    <TextBlock Text="範囲" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox Name="RangeCombo" Width="210" Margin="0,0,16,0" SelectionChanged="Option_Changed"
+                              ToolTip="ジムカーナ: 走行ごとに別のファイルにすると、コース外の待ち時間を書き出さずに済みます"/>
+                </StackPanel>
+                <TextBlock Name="BeforeLabel" Text="セッションの前" VerticalAlignment="Center" Margin="0,0,6,0"/>
                 <TextBox Name="BeforeBox" Width="50" Text="10" Margin="0,0,4,0" LostFocus="Option_LostFocus"/>
                 <TextBlock Text="秒 / 後" VerticalAlignment="Center" Margin="0,0,6,0"/>
                 <TextBox Name="AfterBox" Width="50" Text="10" Margin="0,0,4,0" LostFocus="Option_LostFocus"/>

@@ -184,7 +184,7 @@ namespace Tk2Gui
             {
                 // ジムカーナ: 周回 → 走行、コントロールライン → スタートライン
                 Title = "走行の比較再生 - " + def.Name + " (" + laps.Count + " 本)  " + App.VersionText;
-                LegendLapHeader.Text = "走行"; LegendTimeHeader.Text = "タイム";
+                LegendLapHeader.Text = "Heat"; LegendTimeHeader.Text = "タイム";
                 HelpText.Text = HelpText.Text.Replace("コントロールライン", "スタートライン").Replace("周回の最後", "走行の最後").Replace("ラップタイム", "タイム")
                     .Replace("周回の進み具合", "走行の進み具合").Replace("基準の周回", "基準の走行");
             }

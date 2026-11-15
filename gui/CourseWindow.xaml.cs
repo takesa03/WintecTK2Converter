@@ -40,10 +40,17 @@ namespace Tk2Gui
             st.Text(HalfWidthBox, "HalfWidth");
             st.Check(GymkhanaRadio, "Gymkhana");
             st.Check(PhotoCheck, "Photo");
-            Settings.Track(this, "CourseWindow", st.SaveAll);
-            UpdateModeUi();
             if (initialFiles != null)
                 foreach (string f in initialFiles) AddFile(f);
+            // 走行ログの一覧。ログを指定せずに開いたときは、前回の一覧 (残っているファイルだけ) を並べる
+            st.Custom("LastLogs", () => string.Join("|", FileList.Items.Cast<string>()), v =>
+            {
+                if (FileList.Items.Count == 0 && !string.IsNullOrEmpty(v))
+                    foreach (string f in v.Split('|'))
+                        if (File.Exists(f)) AddFile(f);
+            });
+            Settings.Track(this, "CourseWindow", st.SaveAll);
+            UpdateModeUi();
         }
 
         // ================= 入力ファイル =================
@@ -1049,12 +1056,40 @@ namespace Tk2Gui
                 if (_def.IsGymkhana) GymkhanaRadio.IsChecked = true; else CircuitRadio.IsChecked = true;
                 NameBox.Text = _def.Name;
                 Log("開く: " + dlg.FileName);
+                RestoreSources(_def, dlg.FileName);
                 ShowResult(false);
             }
             catch (Exception ex)
             {
                 MessageBox.Show(this, ex.Message, "開けませんでした", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        // コース定義の sources にある走行ログを一覧に戻す。
+        // 古い定義はファイル名だけなので、コース定義と同じフォルダを探す。見つからないものはログに出すだけ
+        void RestoreSources(CourseDefinition def, string defPath)
+        {
+            if (def.Sources == null || def.Sources.Count == 0) return;
+            string dir = System.IO.Path.GetDirectoryName(defPath);
+            int added = 0;
+            List<string> missing = new List<string>();
+            foreach (string src in def.Sources)
+            {
+                if (string.IsNullOrWhiteSpace(src)) continue;
+                string path = null;
+                if (System.IO.Path.IsPathRooted(src) && File.Exists(src)) path = src;
+                else
+                {
+                    string near = System.IO.Path.Combine(dir ?? "", System.IO.Path.GetFileName(src));
+                    if (File.Exists(near)) path = near;
+                }
+                if (path == null) { missing.Add(src); continue; }
+                int before = FileList.Items.Count;
+                AddFile(path);
+                if (FileList.Items.Count > before) added++;
+            }
+            if (added > 0) Log("走行ログを一覧に戻しました: " + added + " 件");
+            foreach (string m in missing) Log("走行ログが見つかりません: " + m);
         }
 
         void Log(string line)

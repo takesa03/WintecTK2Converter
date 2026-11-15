@@ -376,7 +376,7 @@ namespace Tk2Gui
                     RunEditFields.IsEnabled = false;
                     return;
                 }
-                RunEditTitle.Text = string.Format(Inv, "Session {0} / {1}  {2}{3}", r.Sess.No, r.Rec.Label, r.LapTime,
+                RunEditTitle.Text = string.Format(Inv, "Session {0} / Heat {1}  {2}{3}", r.Sess.No, r.Rec.Label, r.LapTime,
                     _readOnly ? "   [CSV 表示中のため編集できません]" : "");
                 RunDriverBox.Text = _editRun.RunDriver ?? "";
                 RunMemoBox.Text = _editRun.Memo ?? "";
@@ -492,7 +492,7 @@ namespace Tk2Gui
                             if (!_gps.TryGetValue(path, out g)) { g = GpsLoader.Load(path); _gps[path] = g; }
                         }
                         string drv = LapAnalyzer.DriverOf(r.Sess, r.Rec);
-                        string name = (r.Rec.IsGymRun ? "S" + r.Sess.No + " / " + r.Rec.LapNo + "本目" : "S" + r.Sess.No + " / Lap " + r.Rec.LapNo) + (drv.Length > 0 ? "  " + drv : "");
+                        string name = (r.Rec.IsGymRun ? "S" + r.Sess.No + " / Heat " + r.Rec.LapNo : "S" + r.Sess.No + " / Lap " + r.Rec.LapNo) + (drv.Length > 0 ? "  " + drv : "");
                         list.Add(RunCompare.Build(def, g, r.Rec.StartT, r.Rec.LapTime.Value, r.Rec.Sector, name, ReplayWindow.Palette[ci++]));
                     }
                     return list;
@@ -604,9 +604,9 @@ namespace Tk2Gui
                             if (!_gps.TryGetValue(path, out g)) { g = GpsLoader.Load(path); _gps[path] = g; }
                         }
                         string drv = LapAnalyzer.DriverOf(r.Sess, r.Rec);
-                        string name = r.Rec.IsGymRun ? "Session " + r.Sess.No + " / " + r.Rec.LapNo + "本目" + (drv.Length > 0 ? "  (" + drv + ")" : "")
+                        string name = r.Rec.IsGymRun ? "Session " + r.Sess.No + " / Heat " + r.Rec.LapNo + (drv.Length > 0 ? "  (" + drv + ")" : "")
                             : "Session " + r.Sess.No + " / Lap " + r.Rec.LapNo + (drv.Length > 0 ? "  (" + drv + ")" : "");
-                        string label = (r.Rec.IsGymRun ? "S" + r.Sess.No + "-" + r.Rec.LapNo + "本目" : "S" + r.Sess.No + "-L" + r.Rec.LapNo) + (drv.Length > 0 ? " " + drv : "");
+                        string label = (r.Rec.IsGymRun ? "S" + r.Sess.No + "-H" + r.Rec.LapNo : "S" + r.Sess.No + "-L" + r.Rec.LapNo) + (drv.Length > 0 ? " " + drv : "");
                         list.Add(ReplayLap.Build(name, label, r.Rec.StartT, r.Rec.LapTime.Value, g, def.Lat0, def.Lon0, ReplayWindow.Palette[ci++]));
                     }
                     return list;
@@ -774,7 +774,7 @@ namespace Tk2Gui
             LapGrid.Columns.Clear();
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "Session", Binding = new System.Windows.Data.Binding("Session"), Width = 56 });
             bool gym = _res.IsGymkhana;
-            LapGrid.Columns.Add(new DataGridTextColumn { Header = gym ? "走行" : "Lap", Binding = new System.Windows.Data.Binding("Lap"), Width = 118 });
+            LapGrid.Columns.Add(new DataGridTextColumn { Header = gym ? "Heat" : "Lap", Binding = new System.Windows.Data.Binding("Lap"), Width = 118 });
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "開始", Binding = new System.Windows.Data.Binding("Start"), Width = 70 });
             for (int k = 0; k < _res.SectorNames.Length; k++)
                 LapGrid.Columns.Add(MarkCol(_res.SectorNames[k], "Sectors[" + k.ToString(Inv) + "]", "S" + k.ToString(Inv), 72));

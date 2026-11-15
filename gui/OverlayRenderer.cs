@@ -99,6 +99,8 @@ namespace Tk2Gui
         // ---- 配置 ---------------------------------------------------------
 
         /// <summary>anchor / x / y (と below) から、幅 w・高さ h の部品の左上を求める</summary>
+        double _lapRight;   // ラップタイムの表の右端 (ジムカーナでセクターをその下に置くため)
+
         Point Place(OverlaySection s, double w, double h)
         {
             string a = s.Str("anchor", "topleft").ToLowerInvariant();
@@ -200,6 +202,9 @@ namespace Tk2Gui
             if (mx <= 0) mx = (int)Math.Ceiling((D.MaxSpeedKmh + s.Num("margin", 5)) / step) * step;
             mx = Math.Max(step, mx);
             int nb = Math.Max(1, mx / step);
+            // 最高値が wide を超えるメーター (鈴鹿など) は、数字が詰まらないように step×2 ごとにだけ数字を書く (目盛りの線はそのまま)
+            int wide = s.Int("wide", 140);
+            int every = wide > 0 && mx > wide ? 2 : 1;
             Func<double, double, Point> pol = (r, deg) => new Point(cx + r * Math.Cos(deg * Math.PI / 180), cy + r * Math.Sin(deg * Math.PI / 180));
             Pen big = P(fc, Math.Max(1, 2 * k)), small = P(fc, Math.Max(1, k));
             for (int i = 0; i <= nb * 5; i++)
@@ -208,7 +213,7 @@ namespace Tk2Gui
                 bool b = i % 5 == 0;
                 double ln = R * (b ? 0.1 : 0.05);
                 dc.DrawLine(b ? big : small, pol(R - ln, deg), pol(R, deg));
-                if (b)
+                if (b && (i / 5) % every == 0)
                 {
                     Point q = pol(R * 0.78, deg);
                     Text(dc, (step * i / 5).ToString(Inv), 24 * k, fc, q.X, q.Y, 0.5, 0.5, 0, Colors.Black);
@@ -299,7 +304,8 @@ namespace Tk2Gui
         {
             OverlaySection s = L["session"];
             double size = s.Num("size", 30) * U;
-            string t = "Session " + st.SessionNo.ToString(Inv) + (string.IsNullOrWhiteSpace(st.Driver) ? "" : "   Driver " + st.Driver.Trim());
+            string head = D.Def.IsGymkhana && st.HeatNo > 0 ? "Heat " + st.HeatNo.ToString(Inv) : "Session " + st.SessionNo.ToString(Inv);
+            string t = head + (string.IsNullOrWhiteSpace(st.Driver) ? "" : "   Driver " + st.Driver.Trim());
             FormattedText ft = Ft(t, size, Colors.White);
             double w = ft.WidthIncludingTrailingWhitespace;
             Point p = Place(s, w, size);
@@ -312,9 +318,11 @@ namespace Tk2Gui
             OverlaySection s = L["laptime"];
             double size = s.Num("size", 34) * U, cell = Cell(size), lh = size * 1.1, sw = Math.Max(1, size / 18);
             int n = Math.Max(0, s.Int("laps", 3));
-            double w = cell * 14, h = lh * (4 + n);
+            bool gym = D.Def.IsGymkhana;   // ジムカーナ: 1 本ずつの素材なので、ベストと履歴の行は出さない (タイムと差分だけ)
+            double w = cell * 14, h = gym ? lh * 2 : lh * (4 + n);
             Point p = Place(s, w, h);
             double R = p.X + w, y = p.Y;
+            _lapRight = R;
             Color col = s.Col("color", "#FFFFFF"), best = s.Col("best", "#00FFFF"), plus = s.Col("plus", "#FF0000"), minus = s.Col("minus", "#4080FF");
 
             Mono(dc, st.LapTime, size, cell, R, y, col, sw);
@@ -322,6 +330,7 @@ namespace Tk2Gui
             y += lh;
             if (st.LapDelta.HasValue)
                 Mono(dc, OverlayData.FmtLapDelta(st.LapDelta.Value), size, cell, R, y, st.LapDelta.Value > 0 ? plus : minus, sw);
+            if (gym) { _bottom["laptime"] = p.Y + h; return; }
             y += lh * 2;
             Color bl = s.Col("bestline", "#A0FF40");   // Best の行
             Mono(dc, st.LapBest, size, cell, R, y, bl, sw);
@@ -345,8 +354,12 @@ namespace Tk2Gui
             double size = s.Num("size", 30) * U, cell = Cell(size), lh = size * 1.1, sw = Math.Max(1, size / 18);
             int n = Math.Max(0, s.Int("laps", 3));
             const int colw = 7, labw = 6;   // 1 列の文字数 ("+12.345" が入る幅), 行の名前の幅
-            double w = cell * (labw + (colw + 1) * M), h = lh * (5 + n);
+            bool gym = D.Def.IsGymkhana;
+            double w = cell * (labw + (colw + 1) * M), h = gym ? lh * 3 : lh * (5 + n);
             Point p = Place(s, w, h);
+            double lapBottom;
+            if (gym && L.Shown("laptime") && _bottom.TryGetValue("laptime", out lapBottom))
+                p = new Point(_lapRight - w, lapBottom + lh * 0.5);   // ラップタイムの下に、右端をそろえて置く
             double y = p.Y;
             Color col = s.Col("color", "#FFFFFF"), run = s.Col("running", "#FFFF80"), best = s.Col("best", "#00FFFF"),
                   plus = s.Col("plus", "#FF0000"), minus = s.Col("minus", "#4080FF");
@@ -360,6 +373,7 @@ namespace Tk2Gui
             for (int j = 0; j < M; j++)
                 if (st.SecDelta[j].HasValue)
                     Mono(dc, OverlayData.FmtSecDelta(st.SecDelta[j].Value), size, cell, xr(j), y, st.SecDelta[j].Value > 0 ? plus : minus, sw);
+            if (gym) return;
             y += lh * 2;
             Color bl = s.Col("bestline", "#A0FF40");   // Best の行
             Mono(dc, "Best", size, cell, p.X + cell * labw, y, bl, sw);

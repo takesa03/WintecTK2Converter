@@ -85,7 +85,7 @@ namespace Tk2Gui
         {
             get
             {
-                if (IsGymRun) return LapNo + "本目" + (Dnf ? " DNF" : "");
+                if (IsGymRun) return LapNo + (Dnf ? " DNF" : "");     // ジムカーナ: Heat の番号 (列の見出しが Heat)
                 if (!Valid) return "×";
                 if (Type == LapType.Out) return "OUT";
                 if (Type == LapType.Partial) return "途中";

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -21,6 +22,8 @@ namespace Tk2Gui
         readonly List<GpsSample> _gps;
         OverlayLayout _layout;
         OverlayData _data;
+        List<LapRecord> _runs = new List<LapRecord>();   // ジムカーナの走行 (無ければ空)
+        LapRecord _previewRun;                            // プレビュー中の走行 (null = セッション全体)
         OverlayRenderer _preview;
         CancellationTokenSource _cancel;
         bool _ready;
@@ -34,6 +37,18 @@ namespace Tk2Gui
             foreach (FrameRate f in FrameRate.All) FpsCombo.Items.Add(f);
             FpsCombo.SelectedIndex = 3;   // 29.97
 
+            // ジムカーナ: 走行ごとに書き出せるようにする (コース外の待ち時間は使わないので)
+            _runs = sess.Laps.Where(l => l.IsGymRun).OrderBy(l => l.StartT).ToList();
+            if (_runs.Count > 0)
+            {
+                RangeCombo.Items.Add("セッション全体 (1 ファイル)");
+                RangeCombo.Items.Add("走行ごと (" + _runs.Count + " ファイル)");
+                foreach (LapRecord r in _runs) RangeCombo.Items.Add("Heat " + r.Label + " だけ");
+                RangeCombo.SelectedIndex = 1;
+                RangePanel.Visibility = Visibility.Visible;
+                BeforeLabel.Text = "走行の前";
+            }
+
             Settings.Binder st = new Settings.Binder("Overlay");
             st.Text(LayoutBox, "Layout");
             st.Text(FfmpegBox, "Ffmpeg");
@@ -42,6 +57,8 @@ namespace Tk2Gui
             st.Text(BeforeBox, "Before");
             st.Text(AfterBox, "After");
             st.Combo(FormatCombo, "Format");
+            if (_runs.Count > 0) st.Custom("GymRange", () => RangeCombo.SelectedIndex <= 1 ? RangeCombo.SelectedIndex.ToString(Inv) : null,
+                v => { int k; if (int.TryParse(v, out k) && k >= 0 && k <= 1) RangeCombo.SelectedIndex = k; });
             Settings.Track(this, "OverlayExportWindow", st.SaveAll);
 
             if (string.IsNullOrWhiteSpace(LayoutBox.Text) || !File.Exists(LayoutBox.Text)) LayoutBox.Text = OverlayLayout.DefaultPath;
@@ -96,7 +113,10 @@ namespace Tk2Gui
                 return;
             }
             double keep = _data != null ? TimeSlider.Value : -1;
-            _data = new OverlayData(_def, _sess, _sectorNames, _gps, MakeOptions(), Num(BeforeBox, 10), Num(AfterBox, 10));
+            LapRecord only = PreviewRun();
+            if (only != _previewRun) keep = -1;      // 範囲を変えたら、はじめの位置から
+            _previewRun = only;
+            _data = new OverlayData(_def, _sess, _sectorNames, _gps, MakeOptions(), Num(BeforeBox, 10), Num(AfterBox, 10), only);
             int w, h; GetSize(out w, out h);
             _preview = new OverlayRenderer(_layout, _data, w, h);
             PreviewFrame.Width = w; PreviewFrame.Height = h;
@@ -105,13 +125,34 @@ namespace Tk2Gui
             // はじめは、最初の周回の途中あたりを見せる
             if (keep < 0)
             {
-                double t0 = _sess.Laps.Count > 1 ? _sess.Laps[1].StartT + 20 : _data.StartT + 30;
+                double t0 = only != null ? only.StartT + 20 : _sess.Laps.Count > 1 ? _sess.Laps[1].StartT + 20 : _data.StartT + 30;
                 keep = Math.Max(0, Math.Min(TimeSlider.Maximum, t0 - _data.StartT));
             }
             TimeSlider.Value = Math.Min(TimeSlider.Maximum, keep);
             UpdatePreview();
+            string len = string.Format(Inv, "長さ {0}", OverlayData.FmtLap(_data.EndT - _data.StartT));
+            if (RangeCombo.SelectedIndex == 1)
+            {
+                double sum = 0;
+                foreach (LapRecord r in _runs) { OverlayData d = RunData(r); sum += d.EndT - d.StartT; }
+                len = string.Format(Inv, "プレビューは {0}。{1} ファイルの合計 {2}", "Heat " + _runs[0].Label, _runs.Count, OverlayData.FmtLap(sum));
+            }
             Status((_preview.Notice ?? "") + (_preview.Notice != null ? "\n" : "") +
-                   string.Format(Inv, "長さ {0}  (最高速 {1:0} km/h)", OverlayData.FmtLap(_data.EndT - _data.StartT), _data.MaxSpeedKmh));
+                   string.Format(Inv, "{0}  (最高速 {1:0} km/h)", len, _data.MaxSpeedKmh));
+        }
+
+        /// <summary>範囲の選択: null = セッション全体。「走行ごと」のときは 1 本目をプレビューする</summary>
+        LapRecord PreviewRun()
+        {
+            int k = RangeCombo.SelectedIndex;
+            if (_runs.Count == 0 || k <= 0) return null;
+            if (k == 1) return _runs[0];
+            return k - 2 < _runs.Count ? _runs[k - 2] : null;
+        }
+
+        OverlayData RunData(LapRecord r)
+        {
+            return new OverlayData(_def, _sess, _sectorNames, _gps, MakeOptions(), Num(BeforeBox, 10), Num(AfterBox, 10), r);
         }
 
         void UpdatePreview()
@@ -153,10 +194,24 @@ namespace Tk2Gui
             FfmpegBox.Text = d.FileName;
         }
 
-        string DefaultName()
+        string DefaultName() { return DefaultName(_data, _previewRun); }
+
+        string DefaultName(OverlayData data, LapRecord run)
         {
-            DateTime local = new DateTime(2000, 1, 1).AddSeconds(_data.StartT).AddHours(9);
-            return local.ToString("yyyyMMdd_HHmmss", Inv) + "_S" + _sess.No + "_overlay";
+            DateTime local = new DateTime(2000, 1, 1).AddSeconds(data.StartT).AddHours(9);
+            return local.ToString("yyyyMMdd_HHmmss", Inv) + "_S" + _sess.No + (run != null ? "_R" + run.LapNo : "") + "_overlay";
+        }
+
+        /// <summary>走行ごとのとき: 1 本目のファイル名から、ほかの走行のファイル名を作る (日時と _R1 を入れ替える)</summary>
+        string RunPath(string firstPath, OverlayData data, LapRecord run)
+        {
+            string dir = Path.GetDirectoryName(firstPath), ext = Path.GetExtension(firstPath);
+            string name = Path.GetFileNameWithoutExtension(firstPath);
+            string def1 = DefaultName(RunData(_runs[0]), _runs[0]);
+            string mine = DefaultName(data, run);
+            // 既定の名前のままなら走行ごとの既定の名前、変えてあればその名前の後ろに _R番号
+            string n = name == def1 ? mine : name + "_R" + run.LapNo;
+            return Path.Combine(dir ?? "", n + ext);
         }
 
         void SaveFrame_Click(object sender, RoutedEventArgs e)
@@ -208,7 +263,17 @@ namespace Tk2Gui
             FrameRate fr = FpsCombo.SelectedItem as FrameRate ?? FrameRate.All[3];
             int w, h; GetSize(out w, out h);
             OverlayLayout layout = _layout;
-            OverlayData data = new OverlayData(_def, _sess, _sectorNames, _gps, MakeOptions(), Num(BeforeBox, 10), Num(AfterBox, 10));
+            // 書き出す組 (データと出力先)。走行ごとのときは走行の数だけ
+            List<KeyValuePair<OverlayData, string>> jobs = new List<KeyValuePair<OverlayData, string>>();
+            if (RangeCombo.SelectedIndex == 1 && _runs.Count > 0)
+                foreach (LapRecord r in _runs)
+                {
+                    OverlayData d = RunData(r);
+                    jobs.Add(new KeyValuePair<OverlayData, string>(d, RunPath(outPath, d, r)));
+                }
+            else
+                jobs.Add(new KeyValuePair<OverlayData, string>(
+                    new OverlayData(_def, _sess, _sectorNames, _gps, MakeOptions(), Num(BeforeBox, 10), Num(AfterBox, 10), PreviewRun()), outPath));
             _cancel = new CancellationTokenSource();
             CancellationToken ct = _cancel.Token;
             SetBusy(true);
@@ -216,14 +281,25 @@ namespace Tk2Gui
             Status("書き出し中...");
             try
             {
-                await Task.Run(() => OverlayEncoder.Export(() => new OverlayRenderer(layout, data, w, h), data, fr, outPath, png, anim, ff,
-                    (n, total) => Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        Progress.Maximum = total; Progress.Value = n;
-                        double el = sw.Elapsed.TotalSeconds, rest = n > 0 ? el / n * (total - n) : 0;
-                        StatusText.Text = string.Format(Inv, "書き出し中 {0} / {1} フレーム  (残り約 {2:0} 秒)", n, total, rest);
-                    })), ct));
-                Status(string.Format(Inv, "書き出しました ({0:0} 秒): {1}", sw.Elapsed.TotalSeconds, outPath));
+                for (int j = 0; j < jobs.Count; j++)
+                {
+                    OverlayData data = jobs[j].Key;
+                    string path = jobs[j].Value;
+                    string head = jobs.Count > 1 ? string.Format(Inv, "{0} / {1} 本目のファイル  ", j + 1, jobs.Count) : "";
+                    Stopwatch one = Stopwatch.StartNew();
+                    await Task.Run(() => OverlayEncoder.Export(() => new OverlayRenderer(layout, data, w, h), data, fr, path, png, anim, ff,
+                        (n, total) => Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            Progress.Maximum = total; Progress.Value = n;
+                            double el = one.Elapsed.TotalSeconds, rest = n > 0 ? el / n * (total - n) : 0;
+                            StatusText.Text = head + string.Format(Inv, "書き出し中 {0} / {1} フレーム  (残り約 {2:0} 秒)", n, total, rest);
+                        })), ct));
+                }
+                if (jobs.Count == 1)
+                    Status(string.Format(Inv, "書き出しました ({0:0} 秒): {1}", sw.Elapsed.TotalSeconds, outPath));
+                else
+                    Status(string.Format(Inv, "{0} ファイルを書き出しました ({1:0} 秒): {2}", jobs.Count, sw.Elapsed.TotalSeconds,
+                        string.Join("\n", jobs.Select(x => x.Value))));
             }
             catch (OperationCanceledException) { Status("中止しました"); }
             catch (Exception ex)
