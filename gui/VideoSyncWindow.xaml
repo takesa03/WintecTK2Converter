@@ -1,0 +1,96 @@
+﻿<Window x:Class="Tk2Gui.VideoSyncWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="走行動画の時刻合わせ・切り出し" Height="780" Width="1280" MinHeight="520" MinWidth="900"
+        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13" Icon="AppIcon.ico">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="340"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 動画の選択 -->
+        <DockPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,6">
+            <TextBlock Text="動画" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <Button DockPanel.Dock="Right" Content="開く..." Padding="10,3" Margin="6,0,0,0" Click="Browse_Click"/>
+            <ComboBox Name="VideoCombo" SelectionChanged="Video_Changed"
+                      ToolTip="このログに時刻合わせした動画 (切り出した動画を含む)。新しい動画は「開く...」から"/>
+        </DockPanel>
+
+        <!-- 映像 -->
+        <Border Grid.Row="1" Grid.Column="0" CornerRadius="4" ClipToBounds="True">
+            <Grid Name="PaneHost"/>
+        </Border>
+
+        <!-- 右側: 周回・時刻合わせ・切り出し -->
+        <ScrollViewer Grid.Row="1" Grid.Column="1" Margin="10,0,0,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Name="LapHeader" Text="周回 (Ctrl / Shift で複数選択)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <ListBox Name="LapList" Height="220" SelectionMode="Extended" FontFamily="Consolas" MouseDoubleClick="LapList_DoubleClick"
+                         ToolTip="ダブルクリックで、その周回の開始 (ラインの通過) の所へ移動します"/>
+
+                <GroupBox Header="時刻合わせ" Margin="0,10,0,0">
+                    <StackPanel Margin="4">
+                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"
+                                   Name="SyncHelp"
+                                   Text="1. 周回を 1 つ選びます。&#x0A;2. 動画をコマ送りして、その周回の開始 (コントロールラインを通った瞬間) のコマを出します。&#x0A;3. 「このコマが選んだ周回の開始」を押します。&#x0A;合っているかは、重ねた表示 (速度・タイム) と映像を見比べて確かめます。ずれていたら下のボタンで少しずつ直せます。"/>
+                        <Button Name="SyncButton" Content="このコマが選んだ周回の開始" Padding="8,4" FontWeight="Bold" Click="Sync_Click"/>
+                        <TextBlock Name="SyncText" Margin="0,6,0,4" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"/>
+                        <TextBlock Text="表示を動画に対して動かす" Margin="0,2,0,2" FontSize="12"/>
+                        <WrapPanel>
+                            <Button Content="−1 秒" Tag="-1" Padding="6,2" Margin="0,0,4,4" Click="Nudge_Click"/>
+                            <Button Content="−0.1" Tag="-0.1" Padding="6,2" Margin="0,0,4,4" Click="Nudge_Click"/>
+                            <Button Content="−1 コマ" Tag="-f" Padding="6,2" Margin="0,0,4,4" Click="Nudge_Click"/>
+                            <Button Content="＋1 コマ" Tag="f" Padding="6,2" Margin="0,0,4,4" Click="Nudge_Click"/>
+                            <Button Content="＋0.1" Tag="0.1" Padding="6,2" Margin="0,0,4,4" Click="Nudge_Click"/>
+                            <Button Content="＋1 秒" Tag="1" Padding="6,2" Margin="0,0,4,4" Click="Nudge_Click"/>
+                        </WrapPanel>
+                        <CheckBox Name="OverlayCheck" Content="動画素材と同じ表示を重ねる" IsChecked="True" Margin="0,4,0,0" Checked="Overlay_Changed" Unchecked="Overlay_Changed"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Name="ClipGroup" Header="選んだ周回を切り出す" Margin="0,10,0,0">
+                    <StackPanel Margin="4">
+                        <WrapPanel>
+                            <TextBlock Text="前" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <TextBox Name="BeforeBox" Width="44" Text="5" Margin="0,0,4,0"/>
+                            <TextBlock Text="秒  後" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                            <TextBox Name="AfterBox" Width="44" Text="5" Margin="0,0,4,0"/>
+                            <TextBlock Text="秒" VerticalAlignment="Center"/>
+                        </WrapPanel>
+                        <CheckBox Name="AudioCheck" Content="音声も入れる" IsChecked="True" Margin="0,6,0,0"/>
+                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,6,0,6"
+                                   Text="元の動画と同じフォルダに「元の名前_S6_L3.mp4」のように保存します (H.264、再エンコード)。切り出した動画も時刻合わせ済みとして登録するので、比較画面でそのまま使えます。"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Name="ClipButton" Content="切り出す" Padding="12,4" FontWeight="Bold" Click="Clip_Click"/>
+                            <Button Name="CancelButton" Content="中止" Padding="10,4" Margin="6,0,0,0" IsEnabled="False" Click="Cancel_Click"/>
+                        </StackPanel>
+                        <ProgressBar Name="Progress" Height="8" Margin="0,6,0,0" Maximum="1"/>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 再生の操作 -->
+        <WrapPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="0,8,0,0">
+            <Button Content="−10 秒" Tag="-10" Padding="8,4" Margin="0,0,4,4" Click="Step_Click"/>
+            <Button Content="−1 秒" Tag="-1" Padding="8,4" Margin="0,0,4,4" Click="Step_Click"/>
+            <Button Content="◀ コマ" Tag="-f" Padding="8,4" Margin="0,0,4,4" Click="Step_Click" ToolTip="1 コマ戻す (← キー)"/>
+            <Button Name="PlayButton" Content="▶ 再生" Width="90" Padding="0,4" Margin="0,0,4,4" Click="Play_Click" ToolTip="再生・一時停止 (スペース キー)"/>
+            <Button Content="コマ ▶" Tag="f" Padding="8,4" Margin="0,0,4,4" Click="Step_Click" ToolTip="1 コマ進める (→ キー)"/>
+            <Button Content="＋1 秒" Tag="1" Padding="8,4" Margin="0,0,4,4" Click="Step_Click"/>
+            <Button Content="＋10 秒" Tag="10" Padding="8,4" Margin="0,0,14,4" Click="Step_Click"/>
+            <TextBlock Name="TimeText" VerticalAlignment="Center" FontFamily="Consolas" Margin="0,0,0,4"/>
+        </WrapPanel>
+        <DockPanel Grid.Row="3" Grid.ColumnSpan="2" Margin="0,2,0,0">
+            <TextBlock Name="StatusText" DockPanel.Dock="Bottom" Margin="0,6,0,0" TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}"/>
+            <Slider Name="TimeSlider" Minimum="0" Maximum="1" ValueChanged="Slider_Changed" IsMoveToPointEnabled="True"/>
+        </DockPanel>
+    </Grid>
+</Window>

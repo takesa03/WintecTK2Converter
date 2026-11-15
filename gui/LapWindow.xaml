@@ -144,10 +144,14 @@
                                 ToolTip="周回表で選んだ周回 (Ctrl / Shift で複数選択) を、コースの上で同時に走らせて比較します。ログが必要です"/>
                         <Button Content="距離ごとに比較..." Click="Compare_Click" Margin="10,0,0,2" Padding="10,2"
                                 ToolTip="選んだ周回・走行 (Ctrl / Shift で複数選択) の速度と、いちばん速いものとのタイム差を、スタートからの距離ごとのグラフで比べます。どこで差がついたかが分かります。ログが必要です"/>
-                        <CheckBox Name="SortCheck" Visibility="Collapsed" VerticalAlignment="Center" Margin="12,0,0,2" Checked="AllCheck_Changed" Unchecked="AllCheck_Changed"
+                        <CheckBox Name="SortCheck" VerticalAlignment="Center" Margin="12,0,0,2" Checked="AllCheck_Changed" Unchecked="AllCheck_Changed"
                                   Content="タイム順 (全ログ)" ToolTip="全ログの走行を 1 つの表にして、タイムの速い順に並べます (ベストの対象の走行に順位。ミスコース・DNF は後ろ)"/>
                         <Button Content="動画素材を書き出す..." Click="Overlay_Click" Margin="10,0,0,2" Padding="10,2"
                                 ToolTip="選んだセッション (セッション一覧か周回表で選ぶ) の速度計・G・コース図・ラップ表を、透明付きの動画 (ProRes 4444) に書き出します。DaVinci Resolve などで走行動画に重ねて使います。ログが必要です"/>
+                        <Button Content="走行動画の時刻合わせ・切り出し..." Click="VideoSync_Click" Margin="10,0,0,2" Padding="10,2"
+                                ToolTip="選んだセッションの走行動画と、ログの時刻を合わせます。合わせた動画から、周回・走行ごとに動画を切り出せます。ffmpeg が必要です"/>
+                        <Button Content="▶ 動画で比較..." Click="VideoCompare_Click" Margin="10,0,0,2" Padding="10,2" FontWeight="Bold"
+                                ToolTip="周回表で選んだ 2 つの周回・走行の動画を並べて同時に再生します (時刻合わせした動画が必要)。速度・タイム・セクターの表示を重ね、航空写真の比較再生も一緒に動きます"/>
                     </WrapPanel>
                     <l:QuietDataGrid Grid.Row="1" x:Name="LapGrid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
                               SelectionMode="Extended" SelectionUnit="FullRow" HeadersVisibility="Column" GridLinesVisibility="Horizontal" LoadingRow="LapGrid_LoadingRow"
@@ -156,6 +160,8 @@
                             <ContextMenu Opened="LapMenu_Opened">
                                 <MenuItem Header="選んだ周回を比較再生..." Click="Replay_Click"/>
                                 <MenuItem Header="選んだ周回を距離ごとに比較..." Click="Compare_Click"/>
+                                <MenuItem Header="選んだ 2 つを動画で比較..." Click="VideoCompare_Click"/>
+                                <MenuItem Header="走行動画の時刻合わせ・切り出し..." Click="VideoSync_Click"/>
                                 <Separator/>
                                 <MenuItem x:Name="SplitItem" Header="この周回の前でセッションを分割" Click="Split_Click"/>
                                 <MenuItem x:Name="MergeItem" Header="前のセッションと結合" Click="Merge_Click"/>

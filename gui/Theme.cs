@@ -30,6 +30,7 @@ namespace Tk2Gui
         public static readonly Brush RowBest = B(0x1E, 0x47, 0x2B);     // 全体ベストの周回
         public static readonly Brush RowIn = B(0x4A, 0x3D, 0x1C);       // IN
         public static readonly Brush Mark = B(0xFF, 0x5C, 0x5C);        // ★ ※ の付いた値 (赤の太字)
+        public static readonly Brush MarkOnSelect = B(0xFF, 0xA8, 0xA8);  // 選択中の行の ★ ※ の値 (選択色の上で読める明るい赤)
 
         // プレビュー・再生の地図の背景
         public static readonly Brush MapBackground = B(0x1E, 0x22, 0x28);

@@ -458,10 +458,33 @@ namespace Tk2Gui
 
         // ---------------- 再生 ----------------
 
+        // 動画の比較画面から動かすときの時計 (周回の開始からの秒)。null = この画面で再生する
+        Func<double> _external;
+        double _extLast = double.NaN;
+
+        /// <summary>時刻を外から与える (動画の比較画面と連動)。再生の操作は隠す</summary>
+        public void AttachClock(Func<double> clock)
+        {
+            _external = clock;
+            _playing = false;
+            PlayButton.Visibility = Visibility.Collapsed;
+            RestartButton.Visibility = Visibility.Collapsed;
+            SpeedPanel.Visibility = Visibility.Collapsed;
+            LoopCheck.Visibility = Visibility.Collapsed;
+            TimeSlider.IsEnabled = false;
+            Title = Title.Replace("比較再生", "比較再生 (動画と連動)");
+        }
+
         void OnRender(object sender, EventArgs e)
         {
             DateTime now = DateTime.Now;
             double dt = (now - _last).TotalSeconds; _last = now;
+            if (_external != null)
+            {
+                double te = Math.Max(0, Math.Min(_maxDur, _external()));
+                if (te != _extLast) { _extLast = te; _t = te; UpdateFrame(); }
+                return;
+            }
             if (!_playing) return;
             _t += dt * _speed;
             if (_t >= _maxDur)

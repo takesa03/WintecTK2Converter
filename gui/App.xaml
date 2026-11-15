@@ -14,6 +14,8 @@
             <SolidColorBrush x:Key="ControlHoverBrush" Color="#3E3E42"/>
             <SolidColorBrush x:Key="AccentBrush" Color="#0E639C"/>
             <SolidColorBrush x:Key="AccentHoverBrush" Color="#1177BB"/>
+            <!-- 表の選択行 (数字が読めるように、暗めの青に白い文字) -->
+            <SolidColorBrush x:Key="GridSelectBrush" Color="#264F78"/>
             <SolidColorBrush x:Key="TextPrimaryBrush" Color="#DCDCDC"/>
             <SolidColorBrush x:Key="TextSecondaryBrush" Color="#9D9D9D"/>
             <SolidColorBrush x:Key="TextDimBrush" Color="#6D6D6D"/>
@@ -423,9 +425,9 @@
                 <Setter Property="Background" Value="Transparent"/>
                 <Style.Triggers>
                     <Trigger Property="IsSelected" Value="True">
-                        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                        <Setter Property="Background" Value="{StaticResource GridSelectBrush}"/>
                         <Setter Property="Foreground" Value="White"/>
-                        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                        <Setter Property="BorderBrush" Value="{StaticResource GridSelectBrush}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>

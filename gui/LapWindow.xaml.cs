@@ -85,9 +85,14 @@ namespace Tk2Gui
     {
         static readonly Brush Red = Theme.Mark;
 
+        /// <summary>選択中の行用 (選択色の上で読めるように、印は明るい赤、ほかは白)</summary>
+        public bool Selected { get; set; }
+
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             LapRow r = value as LapRow;
+            if (Selected)
+                return r != null && MarkWeightConverter.IsMarked(r, parameter as string) ? Theme.MarkOnSelect : Brushes.White;
             if (r == null) return Theme.Text;
             if (MarkWeightConverter.IsMarked(r, parameter as string)) return Red;
             return r.IsInvalid ? Theme.Error : Theme.Text;
@@ -565,6 +570,111 @@ namespace Tk2Gui
             }
         }
 
+        // 選んだセッションの走行動画とログの時刻を合わせ、周回・走行ごとに切り出す
+        async void VideoSync_Click(object sender, RoutedEventArgs e)
+        {
+            if (_busy) return;
+            if (_readOnly)
+            {
+                MessageBox.Show(this, "CSV を表示しているときは、ログがないので使えません。ログとコース定義から「解析する」を押してください。", "使えません", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (_res == null || _def == null) return;
+            SessionRecord sess = null;
+            LapRow lr = LapGrid.SelectedItem as LapRow;
+            if (lr != null && lr.Sess != null) sess = lr.Sess;
+            SessionRow sr = SessionGrid.SelectedItem as SessionRow;
+            if (sess == null && sr != null) sess = sr.Rec;
+            if (sess == null && _res.Sessions.Count == 1) sess = _res.Sessions[0];
+            if (sess == null || string.IsNullOrEmpty(sess.FilePath))
+            {
+                MessageBox.Show(this, "動画に映っているセッションを、セッション一覧か周回表で選んでください。", "セッションを選んでください", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            CourseDefinition def = _def;
+            string path = sess.FilePath;
+            _busy = true; UpdateButtons();
+            try
+            {
+                List<GpsSample> g = await Task.Run(() => LoadGps(path));
+                VideoSyncWindow w = new VideoSyncWindow(def, sess, _res.SectorNames, g);
+                w.Owner = this;
+                w.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "準備ができませんでした", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                _busy = false; UpdateButtons();
+            }
+        }
+
+        // 選んだ 2 つの周回・走行を、時刻合わせした動画で並べて同時に再生する
+        async void VideoCompare_Click(object sender, RoutedEventArgs e)
+        {
+            if (_busy) return;
+            if (_readOnly)
+            {
+                MessageBox.Show(this, "CSV を表示しているときは、ログがないので再生できません。ログとコース定義から「解析する」を押してください。", "再生できません", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (_res == null || _def == null) return;
+            List<LapRow> rows = LapGrid.SelectedItems.Cast<LapRow>().Where(r => r.Rec != null && r.Sess != null && !string.IsNullOrEmpty(r.Sess.FilePath)).ToList();
+            List<LapRow> ok = rows.Where(r => r.Rec.Type == LapType.Normal && r.Rec.Valid && r.Rec.LapTime.HasValue).OrderBy(r => r.Rec.StartT).ToList();
+            if (ok.Count != 2)
+            {
+                MessageBox.Show(this, "比べる周回・走行を、周回表で 2 つ選んでください (Ctrl を押しながらクリック)。\nOUT・未完・無効 (×) の周回は使えません。", "2 つ選んでください", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            // 動画を探す (前後の余白込み。無ければ周回だけでも)
+            List<string> missing = new List<string>();
+            VideoStore.Entry[] vids = new VideoStore.Entry[2];
+            for (int i = 0; i < 2; i++)
+            {
+                LapRecord r = ok[i].Rec;
+                vids[i] = VideoStore.Find(ok[i].Sess.FilePath, r.StartT - 5, r.EndT + 5);
+                if (vids[i] == null) missing.Add(VideoKit.Label(ok[i].Sess, r));
+            }
+            if (missing.Count > 0)
+            {
+                MessageBox.Show(this, "次の周回の動画がありません: " + string.Join(", ", missing) + "\n\n「走行動画の時刻合わせ・切り出し...」で、その周回が映っている動画の時刻を合わせてください。", "動画がありません", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            CourseDefinition def = _def;
+            _busy = true; UpdateButtons();
+            try
+            {
+                List<GpsSample>[] g = new List<GpsSample>[2];
+                for (int i = 0; i < 2; i++) { string p = ok[i].Sess.FilePath; g[i] = await Task.Run(() => LoadGps(p)); }
+                List<VideoCompareWindow.Lane> lanes = new List<VideoCompareWindow.Lane>();
+                for (int i = 0; i < 2; i++)
+                    lanes.Add(new VideoCompareWindow.Lane { Sess = ok[i].Sess, Lap = ok[i].Rec, Gps = g[i], Video = vids[i], Color = ReplayWindow.Palette[i] });
+                VideoCompareWindow w = new VideoCompareWindow(def, _res.SectorNames, lanes);
+                w.Owner = this;
+                w.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "比較の準備ができませんでした", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                _busy = false; UpdateButtons();
+            }
+        }
+
+        List<GpsSample> LoadGps(string path)
+        {
+            lock (_gps)
+            {
+                List<GpsSample> list;
+                if (!_gps.TryGetValue(path, out list)) { list = GpsLoader.Load(path); _gps[path] = list; }
+                return list;
+            }
+        }
+
         // 周回表で選んだ周回 (複数可) を、コースの上で同時に走らせて比較する
         async void Replay_Click(object sender, RoutedEventArgs e)
         {
@@ -757,13 +867,14 @@ namespace Tk2Gui
                 new System.Windows.Data.Binding(".") { Converter = new MarkWeightConverter(), ConverterParameter = key }));
             st.Setters.Add(new Setter(TextBlock.ForegroundProperty,
                 new System.Windows.Data.Binding(".") { Converter = new MarkBrushConverter(), ConverterParameter = key }));
-            // 選択中の行は青い背景なので、赤は読みにくい: 白にする
+            // 選択中の行は青い背景なので、そのままの赤は読みにくい: 印の付いた値は明るい赤、ほかは白にする
             DataTrigger sel = new DataTrigger
             {
                 Binding = new System.Windows.Data.Binding("IsSelected") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.FindAncestor, typeof(DataGridCell), 1) },
                 Value = true
             };
-            sel.Setters.Add(new Setter(TextBlock.ForegroundProperty, Brushes.White));
+            sel.Setters.Add(new Setter(TextBlock.ForegroundProperty,
+                new System.Windows.Data.Binding(".") { Converter = new MarkBrushConverter { Selected = true }, ConverterParameter = key }));
             st.Triggers.Add(sel);
             return new DataGridTextColumn { Header = header, Binding = new System.Windows.Data.Binding(path), Width = width, ElementStyle = st };
         }
@@ -785,8 +896,11 @@ namespace Tk2Gui
             if (gym) LapGrid.Columns.Add(new DataGridTextColumn { Header = "メモ", Binding = new System.Windows.Data.Binding("Memo"), Width = 200 });
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "備考", Binding = new System.Windows.Data.Binding("Note"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
             RunEditPanel.Visibility = gym ? Visibility.Visible : Visibility.Collapsed;
-            SortCheck.Visibility = gym ? Visibility.Visible : Visibility.Collapsed;
-            if (!gym) SortCheck.IsChecked = false;
+            // タイム順: ジムカーナは全ログを 1 つの表に、サーキットはセッションごとに (区切り行はそのまま) 並べる
+            SortCheck.Content = gym ? "タイム順 (全ログ)" : "タイム順 (セッションごと)";
+            SortCheck.ToolTip = gym
+                ? "全ログの走行を 1 つの表にして、タイムの速い順に並べます (ベストの対象の走行に順位。ミスコース・DNF は後ろ)"
+                : "セッションごとに、ラップタイムの速い順に並べます (普通の周回に順位。アウト・イン・無効な周回は後ろ)";
             MarkHelp.Text = gym
                 ? "マーク: ★ = 全ログ通しての最速 (タイム・区間・最高速), ※ = そのドライバーの最速 (ドライバー名が無い走行はログごと)。ミスコース・DNF はベストの対象外です。"
                 : "マーク: ★ = 全セッション通しての最速 (ラップ・区間・最高速), ※ = そのセッション内での最速。最高速は 1 周の中で出た最高の km/h です。";
@@ -908,40 +1022,56 @@ namespace Tk2Gui
         {
             if (_res == null) { LapGrid.ItemsSource = null; return; }
             List<LapRow> list = new List<LapRow>();
-            if (_res.IsGymkhana && SortCheck.IsChecked == true)
+            bool sort = SortCheck.IsChecked == true;
+            if (_res.IsGymkhana && sort)
             {
                 // タイム順 (全ログ): ベストの対象の走行に順位、その後にミスコース・タイムのない走行
-                List<KeyValuePair<SessionRecord, LapRecord>> all = _res.Sessions.SelectMany(s => s.Laps.Select(l => new KeyValuePair<SessionRecord, LapRecord>(s, l))).ToList();
-                List<KeyValuePair<SessionRecord, LapRecord>> ranked = all.Where(x => CountsForRank(x.Value)).OrderBy(x => x.Value.LapTime.Value).ToList();
-                List<KeyValuePair<SessionRecord, LapRecord>> rest = all.Where(x => !CountsForRank(x.Value))
-                    .OrderBy(x => x.Value.LapTime.HasValue ? 0 : 1).ThenBy(x => x.Value.LapTime ?? 0).ThenBy(x => x.Value.StartT).ToList();
-                for (int i = 0; i < ranked.Count; i++)
-                {
-                    LapRow r = ToRow(ranked[i].Value, ranked[i].Key);
-                    r.Lap = (i + 1) + "位  " + r.Lap;
-                    list.Add(r);
-                }
-                foreach (KeyValuePair<SessionRecord, LapRecord> x in rest) list.Add(ToRow(x.Value, x.Key));
+                list.AddRange(SortedRows(_res.Sessions.SelectMany(s => s.Laps.Select(l => new KeyValuePair<SessionRecord, LapRecord>(s, l)))));
             }
             else if (AllCheck.IsChecked == true)
             {
                 foreach (SessionRecord s in _res.Sessions)
                 {
                     list.Add(Header(s));
-                    if (!_collapsed.Contains(s.No)) list.AddRange(s.Laps.Select(l => ToRow(l, s)));
+                    if (!_collapsed.Contains(s.No)) list.AddRange(sort ? SortedRows(s) : s.Laps.Select(l => ToRow(l, s)));
                 }
             }
             else
             {
                 SessionRow sel = SessionGrid.SelectedItem as SessionRow;
-                if (sel != null) list.AddRange(sel.Rec.Laps.Select(l => ToRow(l, sel.Rec)));
+                if (sel != null) list.AddRange(sort ? SortedRows(sel.Rec) : sel.Rec.Laps.Select(l => ToRow(l, sel.Rec)));
             }
             LapGrid.ItemsSource = list;
         }
 
+        // サーキットのタイム順 (セッションごと)
+        List<LapRow> SortedRows(SessionRecord s)
+        {
+            return SortedRows(s.Laps.Select(l => new KeyValuePair<SessionRecord, LapRecord>(s, l)));
+        }
+
+        // タイムの速い順に並べる。順位の対象 (CountsForRank) に「n位」を付け、その後にそれ以外 (アウト・イン・無効・タイムなし) を、タイム → 時刻の順で
+        List<LapRow> SortedRows(IEnumerable<KeyValuePair<SessionRecord, LapRecord>> laps)
+        {
+            List<KeyValuePair<SessionRecord, LapRecord>> all = laps.ToList();
+            List<KeyValuePair<SessionRecord, LapRecord>> ranked = all.Where(x => CountsForRank(x.Value)).OrderBy(x => x.Value.LapTime.Value).ThenBy(x => x.Value.StartT).ToList();
+            List<KeyValuePair<SessionRecord, LapRecord>> rest = all.Where(x => !CountsForRank(x.Value))
+                .OrderBy(x => x.Value.LapTime.HasValue ? 0 : 1).ThenBy(x => x.Value.LapTime ?? 0).ThenBy(x => x.Value.StartT).ToList();
+            List<LapRow> rows = new List<LapRow>();
+            for (int i = 0; i < ranked.Count; i++)
+            {
+                LapRow r = ToRow(ranked[i].Value, ranked[i].Key);
+                r.Lap = (i + 1) + "位  " + r.Lap;
+                rows.Add(r);
+            }
+            foreach (KeyValuePair<SessionRecord, LapRecord> x in rest) rows.Add(ToRow(x.Value, x.Key));
+            return rows;
+        }
+
+        // 順位の対象: ジムカーナはミスコース・DNF でない走行、サーキットはアウト・インを除く普通の周回
         static bool CountsForRank(LapRecord l)
         {
-            return l.Valid && l.LapTime.HasValue && !l.MissCourse && !l.Dnf;
+            return l.Valid && l.LapTime.HasValue && !l.MissCourse && !l.Dnf && (l.IsGymRun || (l.Type == LapType.Normal && !l.IsIn));
         }
 
         LapRow Header(SessionRecord s)

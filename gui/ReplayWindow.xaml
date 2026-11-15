@@ -17,7 +17,8 @@
         <!-- 操作 -->
         <WrapPanel Grid.Row="0" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,4">
             <Button Name="PlayButton" Content="▶ 再生" Width="86" Padding="0,5" Margin="0,0,6,4" Click="Play_Click"/>
-            <Button Content="⏮ 最初から" Padding="10,5" Margin="0,0,14,4" Click="Restart_Click"/>
+            <Button Name="RestartButton" Content="⏮ 最初から" Padding="10,5" Margin="0,0,14,4" Click="Restart_Click"/>
+            <StackPanel Name="SpeedPanel" Orientation="Horizontal">
             <TextBlock Text="速度" VerticalAlignment="Center" Margin="0,0,6,0"/>
             <ComboBox Name="SpeedCombo" Width="80" SelectedIndex="3" Margin="0,0,14,0" SelectionChanged="Speed_Changed">
                 <ComboBoxItem Content="0.1 ×" Tag="0.1"/>
@@ -27,6 +28,7 @@
                 <ComboBoxItem Content="2 ×" Tag="2"/>
                 <ComboBoxItem Content="4 ×" Tag="4"/>
             </ComboBox>
+            </StackPanel>
             <CheckBox Name="LoopCheck" Content="繰り返す" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,0"/>
             <CheckBox Name="TraceCheck" Content="軌跡を表示" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,0" Checked="View_Changed" Unchecked="View_Changed"/>
             <CheckBox Name="LabelCheck" Content="名前を表示" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,0" Checked="View_Changed" Unchecked="View_Changed"/>
