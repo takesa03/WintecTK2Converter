@@ -30,6 +30,7 @@ namespace Tk2Gui
         readonly VideoPane _pane = new VideoPane();
         readonly PlayClock _clock = new PlayClock();
         readonly string _ffmpeg;
+        readonly string[] _sectorNames;
 
         string _video;
         VideoInfo _vi;
@@ -47,7 +48,7 @@ namespace Tk2Gui
         {
             InitializeComponent();
             Theme.ApplyDark(this);
-            _def = def; _sess = sess; _gps = gps; _log = sess.FilePath;
+            _def = def; _sess = sess; _gps = gps; _log = sess.FilePath; _sectorNames = sectorNames;
             PaneHost.Children.Add(_pane);
             _ffmpeg = FfVideo.Ffmpeg();
             Title = "走行動画の時刻合わせ・切り出し - Session " + sess.No + (sess.Driver.Length > 0 ? " (" + sess.Driver + ")" : "") + "  " + App.VersionText;
@@ -74,7 +75,9 @@ namespace Tk2Gui
             st.Text(BeforeBox, "Before");
             st.Text(AfterBox, "After");
             st.Check(AudioCheck, "Audio");
+            st.Check(BurnCheck, "Burn");
             st.Check(OverlayCheck, "Overlay");
+            st.Combo(VehicleCombo, "Vehicle");
             Settings.Track(this, "VideoSyncWindow", st.SaveAll);
 
             try
@@ -349,6 +352,14 @@ namespace Tk2Gui
             }
             double before = Num(BeforeBox, 5), after = Num(AfterBox, 5);
             bool audio = AudioCheck.IsChecked == true && _vi.HasAudio;
+            bool burn = BurnCheck.IsChecked == true;
+            OverlayLayout layout = _layout;
+            if (burn && layout == null)
+            {
+                MessageBox.Show(this, "表示のレイアウトを読めないので、焼き込めません。", "焼き込めません", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            VideoInfo vi = _vi;
             string src = _video; double t0 = _t0; double dur = _vi.Duration;
             string dir = Path.GetDirectoryName(src), stem = Path.GetFileNameWithoutExtension(src);
             var jobs = new List<Tuple<LapRecord, double, double, string>>();
@@ -359,7 +370,7 @@ namespace Tk2Gui
                 if (b <= 0 || a >= dur) { skipped.Add(VideoKit.Label(_sess, r)); continue; }
                 a = Math.Max(0, a); b = Math.Min(dur, b);
                 string lab = VideoKit.Label(_sess, r);
-                jobs.Add(Tuple.Create(r, a, b - a, Path.Combine(dir, stem + "_" + lab.Replace("-", "_") + ".mp4")));
+                jobs.Add(Tuple.Create(r, a, b - a, Path.Combine(dir, stem + "_" + lab.Replace("-", "_") + (burn ? "_overlay" : "") + ".mp4")));
             }
             if (jobs.Count == 0) { Status("選んだ周回は、この動画に映っていません: " + string.Join(", ", skipped)); return; }
             List<string> exist = jobs.Where(j => File.Exists(j.Item4)).Select(j => Path.GetFileName(j.Item4)).ToList();
@@ -377,9 +388,26 @@ namespace Tk2Gui
                     var j = jobs[k];
                     int kk = k;
                     Status(string.Format(Inv, "切り出し中 ({0}/{1}): {2}", k + 1, jobs.Count, Path.GetFileName(j.Item4)));
-                    await Task.Run(() => FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio,
-                        p => Dispatcher.BeginInvoke(new Action(() => Progress.Value = (kk + p) / jobs.Count)), ct));
-                    VideoStore.Put(_log, new VideoStore.Entry { Path = j.Item4, T0 = t0 + j.Item2, Duration = j.Item3, ClipOf = src, Label = VideoKit.Label(_sess, j.Item1) });
+                    Action<double> prog = p => Dispatcher.BeginInvoke(new Action(() => Progress.Value = (kk + p) / jobs.Count));
+                    if (burn)
+                    {
+                        // その周回 (走行) を中心にした表示を、映像と同じ大きさ・コマ数で描いて重ねる
+                        LapRecord lap = j.Item1;
+                        double before2 = lap.StartT - (t0 + j.Item2) + 1, after2 = (t0 + j.Item2 + j.Item3) - lap.EndT + 1;
+                        OverlayData d = new OverlayData(_def, _sess, _sectorNames, _gps, VideoKit.Options(layout), Math.Max(1, before2), Math.Max(1, after2), lap);
+                        double fps = vi.Fps, clipT0 = t0 + j.Item2;
+                        int total = (int)Math.Ceiling(j.Item3 * fps) + 1;
+                        int w = vi.Width, h = vi.Height;
+                        await Task.Run(() =>
+                        {
+                            using (OverlayFrameSource ov = new OverlayFrameSource(() => new OverlayRenderer(layout, d, w, h),
+                                       (r, n) => d.At(clipT0 + n / fps, fps, r.TrailFrames), total, ct))
+                                FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio, ov, w, h, fps, prog, ct);
+                        });
+                    }
+                    else
+                        await Task.Run(() => FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio, prog, ct));
+                    VideoStore.Put(_log, new VideoStore.Entry { Path = j.Item4, T0 = t0 + j.Item2, Duration = j.Item3, ClipOf = src, Label = VideoKit.Label(_sess, j.Item1) + (burn ? " (表示入り)" : ""), Overlay = burn });
                     done++;
                 }
                 Progress.Value = 1;
@@ -400,6 +428,75 @@ namespace Tk2Gui
         }
 
         void Cancel_Click(object sender, RoutedEventArgs e) { if (_cancel != null) _cancel.Cancel(); }
+
+        // ---------------- 回転数・アクセルの解析 ----------------
+
+        async void Engine_Click(object sender, RoutedEventArgs e)
+        {
+            if (_reader == null || double.IsNaN(_t0) || _data == null)
+            {
+                MessageBox.Show(this, "先に動画を開いて、時刻を合わせてください。", "動画の時刻が未設定です", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (!_vi.HasAudio) { Status("この動画には音声がありません。"); return; }
+            string ff = _ffmpeg, video = _video, log = _log;
+            double t0 = _t0;
+            // 解析する範囲: このセッションの走っている所だけ (サーキットはセッションの前後 60 秒まで)。
+            // ジムカーナは 1 ログ = 1 セッションで、動画全体 (待ち時間・パドック) に広がるので、動画に重なる走行の最初のスタートの 20 秒前〜最後の走行の 15 秒後
+            double from = Math.Max(_sess.StartT - 60, t0), to = Math.Min(_sess.EndT + 60, t0 + _vi.Duration);
+            if (_def.IsGymkhana)
+            {
+                double vEnd = t0 + _vi.Duration;
+                List<LapRecord> runs = _laps.Where(r => r.IsGymRun && r.EndT > t0 && r.StartT < vEnd).ToList();
+                if (runs.Count == 0) { Status("動画の時間に重なる走行がありません。"); return; }
+                from = Math.Max(runs.Min(r => r.StartT) - 20, t0);
+                to = Math.Min(runs.Max(r => double.IsNaN(r.EndT) ? r.StartT + 60 : r.EndT) + 15, vEnd);   // DNF で終わりが無い走行は 60 秒とみなす
+            }
+            if (to - from < 5) { Status("動画がこのセッションの時間に重なっていません。"); return; }
+            OverlayData d = _data;
+            // 車の種類: 前の解析結果に車の設定 (ギア比など) があれば引き継ぐ
+            ComboBoxItem vi = VehicleCombo.SelectedItem as ComboBoxItem;
+            bool gearedSel = vi != null && (string)vi.Tag == "geared";
+            EngineStore.FileData car = new EngineStore.FileData();
+            EngineStore.FileData old = EngineStore.Load(log);
+            if (old != null) EngineStore.CopyCar(old, car);
+            if (gearedSel) car.SetGearedDefaults(); else car.Vehicle = "kart";
+            _cancel = new CancellationTokenSource();
+            CancellationToken ct = _cancel.Token;
+            EngineButton.IsEnabled = false; ClipButton.IsEnabled = false; CancelButton.IsEnabled = true;
+            try
+            {
+                EngineAnalyzer.Work w = await Task.Run(() => EngineAnalyzer.Analyze(ff, video, t0, from, to, d.SpeedAt, car,
+                    (msg, p) => Dispatcher.BeginInvoke(new Action(() => { Progress.Value = p; EngineText.Text = msg; })), ct));
+                EngineStore.FileData file = EngineStore.Put(log, w.Seg, car);
+                if (file.IsGeared)
+                {
+                    int known = w.Seg.Rpm.Count(x => x > 0);
+                    EngineText.Text = string.Format(Inv, "音から回転数が取れたコマ {0:0} %", 100.0 * known / Math.Max(1, w.Seg.Rpm.Length));
+                    Status(string.Format(Inv, "解析しました (変速機付き)。{0} に保存しました。ギア比などは開いた画面で確かめてください。",
+                        Path.GetFileName(EngineStore.SidecarPath(log))));
+                }
+                else
+                {
+                    EngineText.Text = string.Format(Inv, "{0:0.0} rpm / (km/h)", file.RpmPerKmh);
+                    Status(string.Format(Inv, "解析しました: 回転数 = {0:0.0} × 速度 (100 km/h で {1:0} rpm)。{2} に保存しました。",
+                        file.RpmPerKmh, file.RpmPerKmh * 100, Path.GetFileName(EngineStore.SidecarPath(log))));
+                }
+                EngineWindow win = new EngineWindow(log, w, file);
+                win.Show();
+            }
+            catch (OperationCanceledException) { Status("解析を中止しました。"); EngineText.Text = ""; }
+            catch (Exception ex)
+            {
+                Status("解析に失敗しました: " + ex.Message);
+                MessageBox.Show(this, ex.Message, "解析に失敗しました", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                EngineButton.IsEnabled = true; ClipButton.IsEnabled = true; CancelButton.IsEnabled = false;
+                _cancel = null;
+            }
+        }
     }
 
 }

@@ -940,7 +940,7 @@ namespace Tk2Gui
             row.Best = s.BestLap.HasValue ? LapAnalyzer.FormatTime(s.BestLap) : "-";
             row.BestMax = s.BestMaxKmh.HasValue ? s.BestMaxKmh.Value.ToString("0.0", Inv) + " km/h" : "-";
             row.StartKind = _res.IsGymkhana ? string.Format(Inv, "ジムカーナ (DNF {0} 本、ミスコースの疑い {1} 本)", s.Laps.Count(l => l.Dnf), s.Laps.Count(l => l.MissCourse))
-                : (first == null ? "" : first.Type == LapType.Out ? (first.StartGate == 0 ? "OUT (停止から発進)" : "OUT (Sector" + first.StartGate + " から計測)") : "走行中から")
+                : (first == null ? "" : first.Type == LapType.Out ? (first.StartGate == 0 && first.Note.Contains("停止") ?"OUT (停止から発進)" : "OUT (Sector" + (first.StartGate + 1) + " から計測)") : "走行中から")
                     + (s.EditNote.Length > 0 ? "  [" + s.EditNote + "]" : "");
         }
 

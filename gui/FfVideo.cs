@@ -121,16 +121,62 @@ namespace Tk2Gui
         public static void ExportClip(string ffmpeg, string path, double start, double dur, string outPath, bool audio,
                                       Action<double> progress, CancellationToken ct)
         {
+            ExportClip(ffmpeg, path, start, dur, outPath, audio, null, 0, 0, 0, progress, ct);
+        }
+
+        /// <summary>
+        /// overlay を渡すと、その表示 (w × h の BGRA、fps コマ/秒、overlay.Total コマ) を映像に重ねて焼き込む。
+        /// 表示のフレーム 0 は切り出しの 0 秒 (= 元の動画の start 秒) に当たる
+        /// </summary>
+        public static void ExportClip(string ffmpeg, string path, double start, double dur, string outPath, bool audio,
+                                      OverlayFrameSource overlay, int w, int h, double fps,
+                                      Action<double> progress, CancellationToken ct)
+        {
             double ss = Math.Max(0, start);
+            string vin = "", vmap = "-map 0:v:0";
+            if (overlay != null)
+            {
+                vin = string.Format(Inv, "-f rawvideo -pix_fmt bgra -s {0}x{1} -framerate {2} -i pipe:0 ", w, h, fps.ToString("0.######", Inv));
+                // 表示は映像と同じ大きさで描くので、そのまま左上に合わせて重ねる
+                vmap = "-filter_complex \"[0:v][1:v]overlay=0:0:format=auto:eof_action=pass,format=yuv420p[v]\" -map \"[v]\"";
+            }
             string args = string.Format(Inv,
-                "-hide_banner -y -ss {0} -i {1} -t {2} -map 0:v:0 {3} -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p " +
+                "-hide_banner -y -ss {0} -i {1} {6}-t {2} {7} {3} -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p " +
                 "{4} -movflags +faststart -progress pipe:1 -nostats {5}",
-                S(ss), Q(path), S(dur), audio ? "-map 0:a:0?" : "", audio ? "-c:a aac -b:a 192k" : "-an", Q(outPath));
+                S(ss), Q(path), S(dur), audio ? "-map 0:a:0?" : "", audio ? "-c:a aac -b:a 192k" : "-an", Q(outPath), vin, vmap);
             StringBuilder err = new StringBuilder();
             using (Process p = Process.Start(Psi(ffmpeg, args)))
             {
                 p.ErrorDataReceived += (s, e) => { if (e.Data != null) lock (err) { err.AppendLine(e.Data); if (err.Length > 20000) err.Remove(0, 10000); } };
                 p.BeginErrorReadLine();
+                Thread feeder = null;
+                Exception feedErr = null;
+                if (overlay != null)
+                {
+                    // 表示のフレームを ffmpeg の標準入力へ流す (標準出力の進み具合を読むのと別のスレッドで)
+                    feeder = new Thread(() =>
+                    {
+                        try
+                        {
+                            Stream sin = p.StandardInput.BaseStream;
+                            for (int n = 0; n < overlay.Total; n++)
+                            {
+                                byte[] px = overlay.Get(n);
+                                sin.Write(px, 0, px.Length);
+                            }
+                        }
+                        catch (OperationCanceledException) { }
+                        catch (IOException) { }        // ffmpeg が先に終わった (-t に達した)
+                        catch (Exception ex) { feedErr = ex; try { p.Kill(); } catch (Exception) { } }
+                        finally { try { p.StandardInput.Close(); } catch (Exception) { } }
+                    });
+                    feeder.IsBackground = true;
+                    feeder.Start();
+                }
+                else
+                {
+                    try { p.StandardInput.Close(); } catch (Exception) { }
+                }
                 string line;
                 while ((line = p.StandardOutput.ReadLine()) != null)
                 {
@@ -142,10 +188,16 @@ namespace Tk2Gui
                     }
                 }
                 p.WaitForExit();
+                if (feeder != null) feeder.Join();
                 if (ct.IsCancellationRequested)
                 {
                     try { File.Delete(outPath); } catch (Exception) { }
                     throw new OperationCanceledException();
+                }
+                if (feedErr != null)
+                {
+                    try { File.Delete(outPath); } catch (Exception) { }
+                    throw new IOException("表示を描けませんでした: " + feedErr.Message, feedErr);
                 }
                 if (p.ExitCode != 0)
                 {

@@ -19,5 +19,6 @@ publish/
 *.sessions.json
 # 走行動画とログの時刻の対応 (個人のログ・動画に紐づく)
 *.videos.json
+*.engine.json
 # 画面の設定 (exe と同じフォルダに作られる)
 *.settings.json

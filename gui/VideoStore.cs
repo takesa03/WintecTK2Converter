@@ -22,6 +22,7 @@ namespace Tk2Gui
             [JsonPropertyName("duration")] public double Duration { get; set; }   // 動画の長さ [s]
             [JsonPropertyName("clipOf")] public string ClipOf { get; set; }       // 切り出した動画なら元の動画
             [JsonPropertyName("label")] public string Label { get; set; }         // 切り出した範囲 (S6-L3 など)
+            [JsonPropertyName("overlay")] public bool Overlay { get; set; }       // 表示を焼き込んだ切り出し (比較の画面では使わない)
 
             [JsonIgnore] public double EndT { get { return T0 + Duration; } }
         }
@@ -82,7 +83,8 @@ namespace Tk2Gui
         /// </summary>
         public static Entry Find(string log, double t0, double t1)
         {
-            List<Entry> list = Load(log).Where(v => File.Exists(v.Path) && v.T0 < t1 && v.EndT > t0).ToList();
+            // 表示を焼き込んだ動画は除く (比較の画面で表示を重ねると二重になる)
+            List<Entry> list = Load(log).Where(v => !v.Overlay && File.Exists(v.Path) && v.T0 < t1 && v.EndT > t0).ToList();
             Entry full = list.Where(v => v.T0 <= t0 + 0.05 && v.EndT >= t1 - 0.05).OrderBy(v => v.Duration).FirstOrDefault();
             if (full != null) return full;
             return list.OrderByDescending(v => Math.Min(v.EndT, t1) - Math.Max(v.T0, t0)).FirstOrDefault();

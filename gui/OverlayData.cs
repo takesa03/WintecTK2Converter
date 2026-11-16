@@ -47,9 +47,15 @@ namespace Tk2Gui
         public double Lat, Lon, Alt, X, Y;   // X, Y = コース定義の中心を原点にした東・北 [m]
         public double DistM;                 // 書き出し範囲の先頭から走った距離
         public Point[] GTrail;               // 過去の G (古い順。最後が今)
+        public double Rpm = double.NaN;      // エンジンの回転数 (解析結果が無ければ NaN)
+        public double AudioRpm = double.NaN; // 音から求めた回転数 (取れていなければ NaN)
+        public double Throttle = double.NaN; // アクセル 0 (OFF) 〜 1 (ON)。前後 0.15 秒の ON の割合。不明なら NaN
+        public int Gear;                     // 変速機付き: いまのギア (0 = 分からない)
+        public double SlipBase = double.NaN; // 空転の判定の基準の回転数 (音の回転数がこれより slip % 以上高いと SLIP)
 
         public int SessionNo;
-        public int HeatNo;                   // ジムカーナ: いま走っている (または最後に走った) 走行の番号。0 = まだ無い / サーキット
+        public string LapName = "";          // タイムの左に出す周回の名前 (LAP 3 / Heat 2 など)
+        public int HeatNo;                  // ジムカーナ: いま走っている (または最後に走った) 走行の番号。0 = まだ無い / サーキット
         public string Driver = "";
 
         public string LapTime;               // 走行中は経過時間、ラインを通った直後はその周回のタイム
@@ -78,6 +84,7 @@ namespace Tk2Gui
         public readonly double Lat0, Lon0, Kx, Ky;
         public readonly double StartT, EndT;           // 書き出す範囲 (ログの通算秒)
         public readonly double MaxSpeedKmh;            // セッション内の最高速 (速度計の目盛りの最大値を決める)
+        public readonly EngineStore.FileData Engine;   // 回転数・アクセルの解析結果 (ログ名.engine.json。無ければ null)
 
         readonly List<GpsSample> _gps;
         readonly double[] _t, _x, _y, _v, _alt, _lat, _lon, _cum;
@@ -131,6 +138,38 @@ namespace Tk2Gui
             for (int i = 0; i < n; i++) if (_t[i] >= s0 && _t[i] <= s1) mx = Math.Max(mx, _v[i]);
             if (sess.BestMaxKmh.HasValue) mx = Math.Max(mx, sess.BestMaxKmh.Value);
             MaxSpeedKmh = mx;
+            Engine = EngineStore.Load(sess.FilePath);
+            if (Engine != null && !Engine.IsGeared && !(Engine.RpmPerKmh > 0)) Engine = null;
+        }
+
+        /// <summary>回転数 (直結なので 係数 × メーターの速度)・音から求めた回転数・アクセルを入れる</summary>
+        void FillEngine(OverlayState st, double t)
+        {
+            if (Engine == null) return;
+            if (Engine.IsGeared)
+            {
+                // 変速機付き: 回転計には音から求めた回転数をそのまま出す (ブリッピング・空転も含めて)。ギアは音と速度の比から
+                st.AudioRpm = Engine.AudioRpmAt(t);
+                bool filled;
+                st.Gear = Engine.GearAt(t, SpeedAt, out filled);
+                double exp = st.Gear > 0 ? Engine.GearRpmPerKmh(st.Gear) * st.SpeedKmh : double.NaN;
+                st.Rpm = !double.IsNaN(st.AudioRpm) ? st.AudioRpm : exp;
+                // 空転の判定の基準: 加速しているときだけ (減速中のブリッピングで「SLIP」を出さない)。
+                // 次のギアを先に出している所 (クラッチを切っている・発進でつなぎかけ) は基準にしない
+                if (st.Gear > 0 && !filled && SpeedAt(t + 0.3) - SpeedAt(t - 0.3) > 0.5) st.SlipBase = exp;
+                return;
+            }
+            st.Rpm = Engine.RpmPerKmh * st.SpeedKmh;
+            st.SlipBase = st.Rpm;
+            st.AudioRpm = Engine.AudioRpmAt(t);
+            int on = 0, n = 0;
+            for (int j = -3; j <= 3; j++)
+            {
+                int v = Engine.ThrottleAt(t + j * 0.05);
+                if (v < 0) continue;
+                n++; on += v;
+            }
+            if (n >= 4) st.Throttle = (double)on / n;
         }
 
         /// <summary>
@@ -285,6 +324,15 @@ namespace Tk2Gui
             return l.IsIn ? "IN" : l.LapNo.ToString(Inv);
         }
 
+        /// <summary>タイムの左に出す周回の名前 (LAP 3 / OUT LAP / IN LAP / Heat 2)</summary>
+        static string LapName(LapRecord l)
+        {
+            if (l.IsGymRun) return "Heat " + l.LapNo.ToString(Inv);
+            if (l.Type == LapType.Out) return "Out Lap";
+            if (l.Type != LapType.Normal) return "";
+            return l.IsIn ? "In Lap" : "Lap " + l.LapNo.ToString(Inv);
+        }
+
         /// <summary>区間 k の開始・終了時刻。わからなければ NaN</summary>
         void SectorTimes(LapRecord l, out double[] start, out double[] end)
         {
@@ -358,6 +406,7 @@ namespace Tk2Gui
             int i; double f; bool gap;
             Locate(t, out i, out f, out gap);
             st.SpeedKmh = SmoothSpeedAt(t);
+            FillEngine(st, t);
             st.X = Lerp(_x, i, f); st.Y = Lerp(_y, i, f);
             st.Lat = Lerp(_lat, i, f); st.Lon = Lerp(_lon, i, f);
             st.Alt = double.IsNaN(_alt[i]) ? double.NaN : (f > 0 && !double.IsNaN(_alt[i + 1]) ? Lerp(_alt, i, f) : _alt[i]);
@@ -434,6 +483,9 @@ namespace Tk2Gui
             st.LapBest = bestNow != null ? FmtLap(bestNow.LapTime.Value) : "-'--.---";
 
             bool hold = done != null && (cur == null || t - done.EndT < Opt.LapHoldSec);
+            LapRecord shown = hold ? done : cur;
+            if (shown != null) st.LapName = LapName(shown);
+            else if (Def.IsGymkhana) { LapRecord f = GymFocus(t); if (f != null) st.LapName = LapName(f); }
             if (hold)
             {
                 double v = done.LapTime ?? done.PartialTime ?? (done.EndT - done.StartT);

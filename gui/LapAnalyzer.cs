@@ -251,7 +251,7 @@ namespace Tk2Gui
             return list.OrderBy(c => c.T).ToList();
         }
 
-        static LapRecord NewLap(SessionRecord sess, Crossing c, int M, string fname, bool outLap)
+        static LapRecord NewLap(SessionRecord sess, Crossing c, int M, string fname, bool outLap, bool fromStop = true)
         {
             LapRecord l = new LapRecord
             {
@@ -260,7 +260,8 @@ namespace Tk2Gui
                 Type = outLap ? LapType.Out : LapType.Normal
             };
             if (outLap)
-                l.Note = c.Gate == 0 ? "アウトラップ (停止からの発進)" : "アウトラップ (Sector" + c.Gate + " から計測)";
+                // 計測する最初の区間の名前で書く (Sector1 のラインから始まれば、計れるのは区間 S2 から)
+                l.Note = c.Gate == 0 && fromStop ? "アウトラップ (停止からの発進)" : "アウトラップ (Sector" + (c.Gate + 1) + " から計測)";
             sess.Laps.Add(l);
             return l;
         }
@@ -446,7 +447,8 @@ namespace Tk2Gui
                     sess = new SessionRecord { No = ++sessionNo, FileName = fname, FilePath = fpath == null ? null : Path.GetFullPath(fpath), StartT = c.T, EditNote = "手動分割" };
                     res.Sessions.Add(sess);
                     lapNo = 0;
-                    lap = NewLap(sess, c, M, fname, false);
+                    // 手動で分けるのはピットイン (ドライバー交代など) なので、最初の周回はアウトラップ。区間は Sector1 から計る
+                    lap = NewLap(sess, c, M, fname, true, false);
                 }
             }
 

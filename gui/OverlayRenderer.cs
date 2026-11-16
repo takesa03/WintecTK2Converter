@@ -167,6 +167,90 @@ namespace Tk2Gui
             if (L.Shown("laptime")) DrawLap(dc, st);
             if (L.Shown("sector")) DrawSector(dc, st);
             if (L.Shown("info")) DrawInfo(dc, st);
+            // 回転計: 解析結果 (engine.json) があるときだけ。ini に節が無いレイアウトでも既定の位置に出す
+            if (D.Engine != null && (L.Shown("tacho") || !L.Sections.ContainsKey("tacho"))) DrawTacho(dc, st);
+        }
+
+        /// <summary>回転計 (横棒) とアクセル (縦棒)。既定は加速度計と情報の上 (少し透過)</summary>
+        void DrawTacho(DrawingContext dc, OverlayState st)
+        {
+            OverlaySection s;
+            if (!L.Sections.TryGetValue("tacho", out s))
+            {
+                s = new OverlaySection("tacho");
+                s.Values["anchor"] = "bottomleft"; s.Values["x"] = "278"; s.Values["y"] = "174";
+            }
+            dc.PushOpacity(Math.Max(0.05, Math.Min(1, s.Num("opacity", 0.8))));
+            DrawTachoBody(dc, st, s);
+            dc.Pop();
+        }
+
+        void DrawTachoBody(DrawingContext dc, OverlayState st, OverlaySection s)
+        {
+            double k = s.Num("scale", 1) * U;
+            double w = 430 * k, h = 78 * k, pad = 8 * k;
+            Point p = Place(s, w, h);
+            double mx = Math.Max(1000, s.Num("max", 16000)), yel = s.Num("yellow", 13000), red = s.Num("red", 15000);
+            bool geared = D.Engine != null && D.Engine.IsGeared;
+            // 変速機付きは、解析結果 (engine.json) に車の目盛りがあればそちらを使う
+            if (geared && D.Engine.TachoMax > 0)
+            {
+                mx = Math.Max(1000, D.Engine.TachoMax);
+                if (D.Engine.TachoYellow > 0) yel = D.Engine.TachoYellow;
+                if (D.Engine.TachoRed > 0) red = D.Engine.TachoRed;
+            }
+            Color fc = s.Col("color", "#FFFFFF");
+            dc.DrawRoundedRectangle(Br(s.Col("back", "#70000000")), null, new Rect(p.X, p.Y, w, h), 6 * k, 6 * k);
+
+            // アクセル (右端の縦棒)
+            // 変速機付きはアクセルを求めないので、同じ所にギアを出す
+            bool thrShown = !geared && s.Bool("throttle", true), gearShown = geared && s.Bool("gear", true);
+            double tw = thrShown ? 30 * k : gearShown ? 46 * k : 0, tgap = thrShown || gearShown ? 12 * k : 0;
+            double bx = p.X + pad, bw = w - pad * 2 - tw - tgap;
+            if (gearShown)
+            {
+                double gx = p.X + w - pad - tw, gy = p.Y + pad, gh = h - pad * 2;
+                dc.DrawRoundedRectangle(Br(Color.FromArgb(0x60, 0x80, 0x80, 0x80)), null, new Rect(gx, gy, tw, gh), 4 * k, 4 * k);
+                string gs = st.Gear > 0 ? st.Gear.ToString(Inv) : "-";
+                double gsz = 46 * k;
+                Text(dc, gs, gsz, st.Gear > 0 ? s.Col("gearcolor", "#FFFFFF") : Color.FromArgb(0x80, 0xA0, 0xA0, 0xA0),
+                     gx + tw / 2, gy + gh / 2, 0.5, 0.5, Math.Max(1, gsz / 18), Colors.Black);
+            }
+            if (thrShown)
+            {
+                double tx = p.X + w - pad - tw, ty = p.Y + pad, th = h - pad * 2 - 18 * k;
+                Color on = s.Col("throttlecolor", "#40E060");
+                dc.DrawRectangle(Br(Color.FromArgb(0x60, 0x80, 0x80, 0x80)), null, new Rect(tx, ty, tw, th));
+                if (!double.IsNaN(st.Throttle) && st.Throttle > 0)
+                {
+                    double fh = th * st.Throttle;
+                    dc.DrawRectangle(Br(on), null, new Rect(tx, ty + th - fh, tw, fh));
+                }
+                Text(dc, "THR", 15 * k, double.IsNaN(st.Throttle) ? Color.FromArgb(0x80, 0xA0, 0xA0, 0xA0) : fc, tx + tw / 2, p.Y + h - pad, 0.5, 1, 0, Colors.Black);
+            }
+
+            // 数字
+            double rpm = double.IsNaN(st.Rpm) ? 0 : Math.Max(0, st.Rpm);
+            double size = 30 * k;
+            Text(dc, "RPM", 16 * k, fc, bx, p.Y + pad + size * 0.55, 0, 0.5, 0, Colors.Black);
+            Text(dc, rpm < 100 ? "0" : (Math.Round(rpm / 10) * 10).ToString("#,0", Inv), size, fc, bx + bw, p.Y + pad - 2 * k, 1, 0, Math.Max(1, size / 18), Colors.Black);
+            // 後輪の空転・スライド: 音の回転数が速度の回転数より slip % 以上高い
+            double slip = s.Num("slip", 8);
+            // (変速機付きは、そのギアで速度から計算した回転数より、加速中に slip % 以上高い)
+            if (slip > 0 && st.SpeedKmh > 15 && !double.IsNaN(st.AudioRpm) && st.SlipBase > 0 && st.AudioRpm > st.SlipBase * (1 + slip / 100))
+                Text(dc, "SLIP", 16 * k, s.Col("slipcolor", "#FF9030"), bx + 44 * k, p.Y + pad + size * 0.55, 0, 0.5, 0, Colors.Black);
+
+            // 横棒 (区切った目盛り)
+            int segs = Math.Max(5, s.Int("segments", 32));
+            double by = p.Y + h - pad - 22 * k, bh = 22 * k, gap = Math.Max(1, 2 * k), sw = (bw - gap * (segs - 1)) / segs;
+            for (int i = 0; i < segs; i++)
+            {
+                double r0 = mx * i / segs;
+                Color c = r0 >= red ? s.Col("redcolor", "#FF3030") : r0 >= yel ? s.Col("yellowcolor", "#FFD020") : s.Col("barcolor", "#40C0FF");
+                bool lit = rpm > r0 + mx / segs * 0.5;
+                if (!lit) c = Color.FromArgb(0x50, c.R, c.G, c.B);
+                dc.DrawRectangle(Br(c), null, new Rect(bx + i * (sw + gap), by, sw, bh));
+            }
         }
 
         /// <summary>メーター画像を、見えている部分が anchor/x/y に揃うように置き、画像 (300 換算で size) の左上を返す</summary>
@@ -327,6 +411,8 @@ namespace Tk2Gui
 
             Mono(dc, st.LapTime, size, cell, R, y, col, sw);
             Mono(dc, "Time", size, cell, R - cell * 9, y, col, sw);
+            if (!string.IsNullOrEmpty(st.LapName))     // 枠の左にはみ出して出す (タイムの欄の位置は変えない)
+                Mono(dc, st.LapName, size, cell, R - cell * 14, y, col, sw);
             y += lh;
             if (st.LapDelta.HasValue)
                 Mono(dc, OverlayData.FmtLapDelta(st.LapDelta.Value), size, cell, R, y, st.LapDelta.Value > 0 ? plus : minus, sw);
