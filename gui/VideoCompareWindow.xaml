@@ -32,12 +32,13 @@
                 <ComboBoxItem Content="2 ×" Tag="2"/>
             </ComboBox>
             <TextBlock Text="音声" VerticalAlignment="Center" Margin="0,0,6,4"/>
-            <ComboBox Name="AudioCombo" Width="120" SelectedIndex="0" Margin="0,0,14,4" SelectionChanged="Audio_Changed"
-                      ToolTip="どちらの音を聞くか (1 キー = A、2 キー = B、3 キー = 両方、0 キー = なし)">
+            <ComboBox Name="AudioCombo" Width="190" SelectedIndex="0" Margin="0,0,14,4" SelectionChanged="Audio_Changed"
+                      ToolTip="どちらの音を聞くか (1 キー = A、2 キー = B、3 キー = 両方、4 キー = 左右に分ける、0 キー = なし)。左右に分けると、A の音をモノラルにして左のスピーカー、B の音を右のスピーカーから出します">
                 <ComboBoxItem Content="両方"/>
                 <ComboBoxItem Content="A だけ"/>
                 <ComboBoxItem Content="B だけ"/>
                 <ComboBoxItem Content="なし"/>
+                <ComboBoxItem Content="左右に分ける (A = 左, B = 右)"/>
             </ComboBox>
             <TextBlock Text="並べ方" VerticalAlignment="Center" Margin="0,0,6,4"/>
             <ComboBox Name="LayoutCombo" Width="80" SelectedIndex="0" Margin="0,0,14,4" SelectionChanged="Layout_Changed">

@@ -50,7 +50,7 @@ namespace Tk2Gui
         bool _sliderBusy;
         string _ffmpeg;
         WaveOutPlayer _audio;
-        volatile int _audioMode;            // 0 = 両方, 1 = A, 2 = B, 3 = なし
+        volatile int _audioMode;            // 0 = 両方, 1 = A, 2 = B, 3 = なし, 4 = 左右に分ける (A = L, B = R)
         double _audioCursor = double.NaN;   // 音声の再生位置 (τ。音声のスレッドだけが使う)
         ReplayWindow _map;
         readonly CancellationTokenSource _cancel = new CancellationTokenSource();
@@ -310,6 +310,7 @@ namespace Tk2Gui
                 case Key.D2: case Key.NumPad2: AudioCombo.SelectedIndex = 2; break;
                 case Key.D3: case Key.NumPad3: AudioCombo.SelectedIndex = 0; break;
                 case Key.D0: case Key.NumPad0: AudioCombo.SelectedIndex = 3; break;
+                case Key.D4: case Key.NumPad4: AudioCombo.SelectedIndex = 4; break;
                 default: return;
             }
             e.Handled = true;
@@ -333,6 +334,19 @@ namespace Tk2Gui
             if (mode == 2) a = null;
             double ka = a != null && b != null ? 0.6 : 1.0;
             int i0 = (int)Math.Round((_audioCursor - _tmin) * FfVideo.AudioRate) * 2;
+            if (mode == 4)
+            {
+                // 左右に分ける: A (左・上の映像) をモノラルにして L、B (右・下の映像) をモノラルにして R
+                for (int f = 0; f < frames; f++)
+                {
+                    int i = i0 + f * 2;
+                    bool inA = a != null && i >= 0 && i + 1 < a.Length, inB = b != null && i >= 0 && i + 1 < b.Length;
+                    buf[f * 2] = inA ? (short)((a[i] + a[i + 1]) / 2) : (short)0;
+                    buf[f * 2 + 1] = inB ? (short)((b[i] + b[i + 1]) / 2) : (short)0;
+                }
+                _audioCursor += (double)frames / FfVideo.AudioRate;
+                return;
+            }
             for (int k = 0; k < frames * 2; k++)
             {
                 int i = i0 + k;
