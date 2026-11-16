@@ -58,13 +58,13 @@
                 <GroupBox Header="エンジンの回転数・アクセル (音声から)" Margin="0,10,0,0">
                     <StackPanel Margin="4">
                         <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"
-                                   Text="時刻を合わせた動画の音声から、このセッションの回転数を求めて「ログ名.engine.json」に保存します。カート (直結の 2 スト単気筒、KT100 など) は回転数 = 係数 × 速度 とアクセルの ON / OFF、変速機付きの車は音の線をたどった回転数とギア (ギア比は解析結果の画面で入れます)。"/>
-                        <StackPanel Orientation="Horizontal">
+                                   Text="時刻を合わせた動画の音声から、このセッションの回転数を求めて「ログ名.engine.json」に保存します。カート (直結の 2 スト単気筒、KT100 など) は回転数 = 係数 × 速度 とアクセルの ON / OFF、変速機付きの車は音の線をたどった回転数とギア (車両のセットを選びます。ギア比などは解析結果の画面で直せます)。"/>
+                        <DockPanel>
                             <TextBlock Text="車" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <ComboBox Name="VehicleCombo" Width="190" SelectedIndex="0" Margin="0,0,8,0" VerticalAlignment="Center">
-                                <ComboBoxItem Content="カート (直結)" Tag="kart"/>
-                                <ComboBoxItem Content="変速機付き (4 スト)" Tag="geared"/>
-                            </ComboBox>
+                            <ComboBox Name="VehicleCombo" VerticalAlignment="Center"
+                                      ToolTip="カート、または変速機付きの車両のセット (ギア比・タイヤなど)。セットは解析結果の画面で直して保存できます"/>
+                        </DockPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                             <Button Name="EngineButton" Content="音声を解析" Padding="12,4" Click="Engine_Click"
                                     ToolTip="解析が終わると、結果を確かめる図の画面が開きます (セッション 10 分で数十秒)"/>
                             <TextBlock Name="EngineText" VerticalAlignment="Center" Margin="8,0,0,0" TextWrapping="Wrap"/>

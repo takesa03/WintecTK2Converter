@@ -77,8 +77,8 @@ namespace Tk2Gui
             st.Check(AudioCheck, "Audio");
             st.Check(BurnCheck, "Burn");
             st.Check(OverlayCheck, "Overlay");
-            st.Combo(VehicleCombo, "Vehicle");
-            Settings.Track(this, "VideoSyncWindow", st.SaveAll);
+            FillVehicles();
+            Settings.Track(this, "VideoSyncWindow", () => { st.SaveAll(); Settings.Set("VideoSync.VehicleName", SelectedVehicle()); });
 
             try
             {
@@ -431,6 +431,32 @@ namespace Tk2Gui
 
         // ---------------- 回転数・アクセルの解析 ----------------
 
+        /// <summary>
+        /// 「車」の一覧: カートと車両のセット (CarPresets)。最初に選ぶのは、このログの解析結果の車 → 前に選んだもの → カート
+        /// </summary>
+        void FillVehicles()
+        {
+            VehicleCombo.Items.Clear();
+            VehicleCombo.Items.Add(new ComboBoxItem { Content = "カート (直結)", Tag = "kart" });
+            foreach (CarPreset p in CarPresets.All())
+                VehicleCombo.Items.Add(new ComboBoxItem { Content = p.Name + " (変速機付き)", Tag = p.Name });
+            string want = null;
+            EngineStore.FileData old = _log != null ? EngineStore.Load(_log) : null;
+            if (old != null) want = old.IsGeared ? (string.IsNullOrEmpty(old.CarModel) ? CarPresets.BuiltIn[0].Name : old.CarModel) : "kart";
+            if (want == null) want = Settings.Get("VideoSync.VehicleName");
+            if (want == null && Settings.Get("VideoSync.Vehicle") == "1") want = CarPresets.BuiltIn[0].Name;   // 前の版の「変速機付き」
+            int idx = 0;
+            for (int i = 0; i < VehicleCombo.Items.Count; i++)
+                if ((string)((ComboBoxItem)VehicleCombo.Items[i]).Tag == want) idx = i;
+            VehicleCombo.SelectedIndex = idx;
+        }
+
+        string SelectedVehicle()
+        {
+            ComboBoxItem it = VehicleCombo.SelectedItem as ComboBoxItem;
+            return it != null ? (string)it.Tag : "kart";
+        }
+
         async void Engine_Click(object sender, RoutedEventArgs e)
         {
             if (_reader == null || double.IsNaN(_t0) || _data == null)
@@ -443,7 +469,9 @@ namespace Tk2Gui
             double t0 = _t0;
             // 解析する範囲: このセッションの走っている所だけ (サーキットはセッションの前後 60 秒まで)。
             // ジムカーナは 1 ログ = 1 セッションで、動画全体 (待ち時間・パドック) に広がるので、動画に重なる走行の最初のスタートの 20 秒前〜最後の走行の 15 秒後
-            double from = Math.Max(_sess.StartT - 60, t0), to = Math.Min(_sess.EndT + 60, t0 + _vi.Duration);
+            // サーキットは、最初のラインより前のピットを出る所 (止まっていた所) からも含める
+            double from = Math.Max(Math.Min(_sess.StartT - 60, _data != null ? _data.DepartureBefore(_sess.StartT) - 10 : double.MaxValue), t0),
+                   to = Math.Min(_sess.EndT + 60, t0 + _vi.Duration);
             if (_def.IsGymkhana)
             {
                 double vEnd = t0 + _vi.Duration;
@@ -454,13 +482,19 @@ namespace Tk2Gui
             }
             if (to - from < 5) { Status("動画がこのセッションの時間に重なっていません。"); return; }
             OverlayData d = _data;
-            // 車の種類: 前の解析結果に車の設定 (ギア比など) があれば引き継ぐ
-            ComboBoxItem vi = VehicleCombo.SelectedItem as ComboBoxItem;
-            bool gearedSel = vi != null && (string)vi.Tag == "geared";
+            // 車の種類: 前の解析結果と同じ車両のセットなら、その値 (解析結果の画面で直した値) を引き継ぐ。違う車ならセットの値に切り替える
+            string sel = SelectedVehicle();
             EngineStore.FileData car = new EngineStore.FileData();
             EngineStore.FileData old = EngineStore.Load(log);
             if (old != null) EngineStore.CopyCar(old, car);
-            if (gearedSel) car.SetGearedDefaults(); else car.Vehicle = "kart";
+            if (sel == "kart") car.Vehicle = "kart";
+            else
+            {
+                string oldModel = old != null && old.IsGeared ? (string.IsNullOrEmpty(old.CarModel) ? CarPresets.BuiltIn[0].Name : old.CarModel) : null;
+                CarPreset p = CarPresets.Find(sel);
+                if (oldModel == sel || p == null) { car.SetGearedDefaults(); car.CarModel = sel; }
+                else { p.ApplyTo(car); car.MaxGear = 0; car.MaxGearManual = false; }
+            }
             _cancel = new CancellationTokenSource();
             CancellationToken ct = _cancel.Token;
             EngineButton.IsEnabled = false; ClipButton.IsEnabled = false; CancelButton.IsEnabled = true;

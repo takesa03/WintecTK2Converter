@@ -20,7 +20,21 @@
                         ToolTip="直結なので 回転数 = この値 × 速度。音から求めた値が合わないときに手で直します (図の水色の線がこの値で描いた倍音です)"/>
                 <Button Content="音から求めた値に戻す" Padding="10,3" Margin="0,0,14,0" Click="ResetCoef_Click"/>
             </StackPanel>
-            <StackPanel Name="GearPanel" Orientation="Horizontal" Visibility="Collapsed">
+            <StackPanel Name="GearPanel" Visibility="Collapsed">
+              <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <TextBlock Text="車両" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                <ComboBox Name="CarCombo" Width="220" VerticalAlignment="Center" SelectionChanged="Car_Changed"
+                          ToolTip="車両のセットを選ぶと、ギア比・最終・タイヤ・気筒・目盛りがまとめて切り替わります (「保存」でこのログに使います)"/>
+                <TextBlock Text="名前" VerticalAlignment="Center" Margin="12,0,4,0"/>
+                <TextBox Name="PresetNameBox" Width="200" VerticalAlignment="Center" TextChanged="PresetName_Changed"
+                         ToolTip="「セットに保存」の名前。選んだセットの名前が入ります。新しい名前にすると、別のセットとして足せます"/>
+                <Button Content="セットに保存" Padding="10,3" Margin="8,0,0,0" Click="SavePreset_Click"
+                        ToolTip="いまの欄の値を、左の名前の車両のセットとして保存します (ほかのログでも選べます)。最初から入っている名前で保存すると、その値より優先します"/>
+                <Button Name="DeletePresetButton" Content="セットを消す" Padding="10,3" Margin="6,0,0,0" Click="DeletePreset_Click"
+                        ToolTip="保存したセットを消します。最初から入っている車 (DC5・EK9・EF8) は純正の値に戻ります"/>
+                <TextBlock Name="PresetNote" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
+              </StackPanel>
+              <StackPanel Orientation="Horizontal">
                 <TextBlock Text="ギア比" VerticalAlignment="Center" Margin="0,0,4,0"/>
                 <TextBox Name="GearsBox" Width="210" VerticalAlignment="Center" ToolTip="1 速から順に、カンマで区切って (例: 3.266, 2.130, 1.517)"/>
                 <TextBlock Text="使うのは" VerticalAlignment="Center" Margin="8,0,4,0"/>
@@ -37,7 +51,8 @@
                 <TextBlock Text="目盛り 最高 / 黄 / 赤" VerticalAlignment="Center" Margin="8,0,4,0"/>
                 <TextBox Name="TachoBox" Width="120" VerticalAlignment="Center" ToolTip="回転計の目盛り [rpm] (例: 9000, 7500, 8200)"/>
                 <Button Content="保存" Padding="10,3" Margin="8,0,14,0" Click="SaveCar_Click"
-                        ToolTip="ギアの判定と回転計の目盛りに使います (解析し直す必要はありません。気筒数を変えたときだけ解析し直し)"/>
+                        ToolTip="このログの解析結果に使います。ギアの判定と回転計の目盛りは解析し直す必要はありません (気筒数・ギア比を大きく変えたときは解析し直すとよりよくなります)"/>
+              </StackPanel>
             </StackPanel>
             <TextBlock Text="横の拡大" VerticalAlignment="Center" Margin="0,0,6,0"/>
             <ComboBox Name="ZoomCombo" Width="70" SelectedIndex="1" SelectionChanged="Zoom_Changed">

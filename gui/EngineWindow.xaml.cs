@@ -103,13 +103,9 @@ namespace Tk2Gui
         {
             CoefPanel.Visibility = Visibility.Collapsed; GearPanel.Visibility = Visibility.Visible;
             Title = "回転数・ギアの解析 - " + System.IO.Path.GetFileName(_w.Seg.Video) + "  " + App.VersionText;
-            GearsBox.Text = string.Join(", ", (_file.GearRatios ?? new double[0]).Select(x => x.ToString("0.###", Inv)));
-            FinalBox.Text = _file.FinalRatio.ToString("0.###", Inv);
+            FillPresets(string.IsNullOrEmpty(_file.CarModel) ? CarPresets.BuiltIn[0].Name : _file.CarModel);
+            SetBoxes(CarPreset.From(_file, _file.CarModel));
             MaxGearBox.Text = _file.MaxGear.ToString(Inv);
-            TireBox.Text = _file.TireSize ?? "";
-            CircBox.Text = _file.TireCircM.ToString("0.###", Inv);
-            CylBox.Text = _file.Cylinders.ToString(Inv);
-            TachoBox.Text = string.Format(Inv, "{0}, {1}, {2}", _file.TachoMax, _file.TachoYellow, _file.TachoRed);
             LegendText.Text = "図: 横 = 時間 (白い目盛りは 10 秒ごと)、縦 = 周波数 (0〜600 Hz、黄色の目盛りは 100 Hz ごと)。明るい線がエンジン音です。" +
                 "赤 = 音から求めた回転数 (1・2 倍)、水色の点線 = 各ギアで速度から計算した回転数。下の帯 = ギア (緑 1 速、青 2 速、黄 3 速、橙 4 速、紫 5 速、灰 6 速、黒 = 分からない・止まっている)。" +
                 "グリップしているときは赤が水色のどれかに重なります。上に離れているのは空転、減速中に跳ね上がるのはブリッピングです。";
@@ -135,8 +131,52 @@ namespace Tk2Gui
             Draw();
         }
 
-        void SaveCar_Click(object sender, RoutedEventArgs e)
+        bool _fillingPresets;
+
+        void FillPresets(string select)
         {
+            _fillingPresets = true;
+            CarCombo.Items.Clear();
+            foreach (CarPreset p in CarPresets.All()) CarCombo.Items.Add(p.Name);
+            CarCombo.SelectedItem = CarCombo.Items.Contains(select ?? "") ? select : null;
+            PresetNameBox.Text = select ?? "";
+            _fillingPresets = false;
+            UpdatePresetNote();
+        }
+
+        void PresetName_Changed(object sender, TextChangedEventArgs e) { if (DeletePresetButton != null) UpdatePresetNote(); }
+
+        void UpdatePresetNote()
+        {
+            string name = (PresetNameBox.Text ?? "").Trim();
+            bool user = CarPresets.IsUserSaved(name), builtIn = CarPresets.IsBuiltIn(name);
+            DeletePresetButton.IsEnabled = user;
+            PresetNote.Text = builtIn ? (user ? "純正の値を直して保存したセット" : "純正の値") : user ? "保存したセット" : "";
+        }
+
+        void SetBoxes(CarPreset p)
+        {
+            GearsBox.Text = string.Join(", ", (p.GearRatios ?? new double[0]).Select(x => x.ToString("0.###", Inv)));
+            FinalBox.Text = p.FinalRatio.ToString("0.###", Inv);
+            TireBox.Text = p.TireSize ?? "";
+            CircBox.Text = p.TireCircM.ToString("0.###", Inv);
+            CylBox.Text = p.Cylinders.ToString(Inv);
+            TachoBox.Text = string.Format(Inv, "{0}, {1}, {2}", p.TachoMax, p.TachoYellow, p.TachoRed);
+        }
+
+        /// <summary>車両のセットを選んだら、欄の値をまとめて切り替える (「保存」を押すまでこのログには使わない)</summary>
+        void Car_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_fillingPresets) return;
+            string name = CarCombo.SelectedItem as string;
+            CarPreset p = CarPresets.Find(name);
+            if (p != null) { SetBoxes(p); PresetNameBox.Text = p.Name; }
+        }
+
+        /// <summary>欄の値を読む。おかしければ知らせて null</summary>
+        CarPreset ReadBoxes(out int maxg)
+        {
+            maxg = 0;
             try
             {
                 double[] gears = GearsBox.Text.Split(new[] { ',', ' ', '	', '、' }, StringSplitOptions.RemoveEmptyEntries)
@@ -144,21 +184,62 @@ namespace Tk2Gui
                 double fin = double.Parse(FinalBox.Text, NumberStyles.Float, Inv);
                 double circ = string.IsNullOrWhiteSpace(CircBox.Text) ? 0 : double.Parse(CircBox.Text, NumberStyles.Float, Inv);
                 int cyl = int.Parse(CylBox.Text.Trim(), Inv);
-                int maxg = string.IsNullOrWhiteSpace(MaxGearBox.Text) ? 0 : int.Parse(MaxGearBox.Text.Trim(), Inv);
+                maxg = string.IsNullOrWhiteSpace(MaxGearBox.Text) ? 0 : int.Parse(MaxGearBox.Text.Trim(), Inv);
                 if (maxg < 0) throw new FormatException();
                 int[] tc = TachoBox.Text.Split(new[] { ',', ' ', '/', '、' }, StringSplitOptions.RemoveEmptyEntries).Select(x => int.Parse(x, Inv)).ToArray();
                 if (gears.Length == 0 || gears.Any(x => x <= 0) || fin <= 0 || cyl <= 0 || tc.Length != 3) throw new FormatException();
                 if (circ <= 0 && EngineStore.FileData.TireDiameterMm(TireBox.Text) <= 0) throw new FormatException();
-                _file.GearRatios = gears; _file.FinalRatio = fin; _file.TireSize = TireBox.Text.Trim(); _file.TireCircM = circ;
-                _file.Cylinders = cyl; _file.MaxGear = maxg; _file.TachoMax = tc[0]; _file.TachoYellow = tc[1]; _file.TachoRed = tc[2];
-                EngineStore.Save(_log, _file);
-                ShowCar();
+                return new CarPreset { Name = (PresetNameBox.Text ?? "").Trim(), GearRatios = gears, FinalRatio = fin, TireSize = TireBox.Text.Trim(), TireCircM = circ,
+                                       Cylinders = cyl, TachoMax = tc[0], TachoYellow = tc[1], TachoRed = tc[2] };
             }
             catch (FormatException)
             {
                 MessageBox.Show(this, "ギア比 (カンマ区切り)、最終減速比、タイヤ (215/45R17 の形、または 1 周 [m])、気筒数、目盛り 3 つ (最高, 黄, 赤) を数字で入れてください。",
                     "値が正しくありません", MessageBoxButton.OK, MessageBoxImage.Information);
+                return null;
             }
+        }
+
+        void SaveCar_Click(object sender, RoutedEventArgs e)
+        {
+            int maxg;
+            CarPreset p = ReadBoxes(out maxg);
+            if (p == null) return;
+            p.ApplyTo(_file);
+            if (string.IsNullOrEmpty(_file.CarModel)) _file.CarModel = null;
+            // 使う一番上のギア: 解析で決まった値のままなら自動のまま。書き換えたら手で決めた値 (0 で自動に戻す)
+            if (maxg != _file.MaxGear || _file.MaxGearManual) { _file.MaxGear = maxg; _file.MaxGearManual = maxg > 0; }
+            EngineStore.Save(_log, _file);
+            ShowCar();
+        }
+
+        void SavePreset_Click(object sender, RoutedEventArgs e)
+        {
+            int maxg;
+            CarPreset p = ReadBoxes(out maxg);
+            if (p == null) return;
+            if (string.IsNullOrEmpty(p.Name))
+            {
+                MessageBox.Show(this, "「名前」の欄にセットの名前を入れてください。", "名前がありません", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            try { CarPresets.Save(p); }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "セットを保存できません", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            FillPresets(p.Name);
+        }
+
+        void DeletePreset_Click(object sender, RoutedEventArgs e)
+        {
+            string name = (PresetNameBox.Text ?? "").Trim();
+            if (!CarPresets.IsUserSaved(name)) return;
+            bool builtIn = CarPresets.IsBuiltIn(name);
+            if (MessageBox.Show(this, builtIn ? "「" + name + "」の保存した値を消して、純正の値に戻しますか？" : "車両のセット「" + name + "」を消しますか？",
+                    "セットを消す", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            try { CarPresets.Delete(name); }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "セットを消せません", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            FillPresets(builtIn ? name : CarPresets.BuiltIn[0].Name);
+            CarPreset p = CarPresets.Find(PresetNameBox.Text);
+            if (p != null) SetBoxes(p);
         }
 
         void DrawGeared(byte[] px)

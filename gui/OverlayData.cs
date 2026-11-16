@@ -178,6 +178,12 @@ namespace Tk2Gui
         /// </summary>
         double Departure(double t0)
         {
+            return DepartureBefore(t0);
+        }
+
+        /// <summary>時刻 t0 より前で、最後に止まっていた所 (ピットを出る所) の時刻</summary>
+        public double DepartureBefore(double t0)
+        {
             int i = Array.BinarySearch(_t, t0);
             if (i < 0) i = ~i;
             i = Math.Min(i, _t.Length - 1);

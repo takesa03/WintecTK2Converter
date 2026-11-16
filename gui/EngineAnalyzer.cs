@@ -243,7 +243,9 @@ namespace Tk2Gui
         {
             int frames = H.Length, nc = H[0].Length;
             int[] path;
-            if (car.MaxGear > 0 || car.GearRatios == null || car.GearRatios.Length < 2)
+            // 使う一番上のギアを手で決めたときだけ、それで縛る。自動のときは解析のたびに決め直す
+            // (前の解析の値を残すと、ジムカーナで 2 速と決まったログでサーキットを解析したときに 3 速より上をたどれない)
+            if ((car.MaxGear > 0 && car.MaxGearManual) || car.GearRatios == null || car.GearRatios.Length < 2)
                 path = Dp(Prior(H, v, car, car.GearRatios != null ? car.TopGear : 0, cMin, ppr), cMin, 0.8, 0.12, progress, ct);
             else
             {
@@ -328,22 +330,28 @@ namespace Tk2Gui
             for (int f = 0; f < frames; f++)
             {
                 int f0 = Math.Max(0, f - 6), f1 = Math.Min(frames - 1, f + 6);
-                if (v[f] >= 25 && v[f1] - v[f0] >= 0.8) idx.Add(f);
+                // 加速中と、速度がほぼ一定の所 (サーキットの一番上のギアは最高速付近の一定の所が多い)。減速中はブリッピング・クラッチを切るので数えない
+                if (v[f] >= 25 && v[f1] - v[f0] >= -0.3) idx.Add(f);
             }
             if (idx.Count < 40) return n;
-            float[] q = idx.Select(f => H[f][path[f]]).OrderBy(x => x).ToArray();
-            float thr = q[q.Length / 2];
+            // 音がはっきりしている上位半分のコマだけを数える。速いほど風・路面の雑音で音が埋もれるので、20 km/h ごとの速度帯の中で分ける
+            // (全体で分けると、最高速付近で使う一番上のギアのコマがほとんど残らない)
+            Dictionary<int, float> thr = idx.GroupBy(f => (int)(v[f] / 20)).ToDictionary(gr => gr.Key, gr =>
+            {
+                float[] q = gr.Select(f => H[f][path[f]]).OrderBy(x => x).ToArray();
+                return q[q.Length / 2];
+            });
             int[] cnt = new int[n + 1]; int tot = 0;
             int saved = car.MaxGear; car.MaxGear = 0;
             foreach (int f in idx)
             {
-                if (H[f][path[f]] < thr) continue;
+                if (H[f][path[f]] < thr[(int)(v[f] / 20)]) continue;
                 double rpm = (cMin + path[f] * CandStep) * 60 / ppr;
                 cnt[car.GearFor(rpm, v[f])]++; tot++;
             }
             car.MaxGear = saved;
             int top = 1;
-            for (int g = 1; g <= n; g++) if (cnt[g] >= 40 && cnt[g] >= tot * 0.05) top = g;
+            for (int g = 1; g <= n; g++) if (cnt[g] >= 40 && cnt[g] >= tot * 0.03) top = g;
             LastGearCounts = cnt;
             return top;
         }
@@ -507,6 +515,8 @@ namespace Tk2Gui
             [JsonPropertyName("tireSize")] public string TireSize { get; set; }           // 215/45R17 の形
             [JsonPropertyName("tireCircM")] public double TireCircM { get; set; }         // 走っているときのタイヤ 1 周 [m] (0 = サイズから)
             [JsonPropertyName("maxGear")] public int MaxGear { get; set; }                // 使う一番上のギア (0 = 全部。ジムカーナは 2 など)
+            [JsonPropertyName("maxGearManual")] public bool MaxGearManual { get; set; }   // MaxGear を手で決めた (false = 解析のたびに音から決める)
+            [JsonPropertyName("carModel")] public string CarModel { get; set; }           // 車両のセットの名前 (CarPresets)
             [JsonPropertyName("tachoMax")] public int TachoMax { get; set; }              // 回転計の目盛り (0 = レイアウトの ini の値)
             [JsonPropertyName("tachoYellow")] public int TachoYellow { get; set; }
             [JsonPropertyName("tachoRed")] public int TachoRed { get; set; }
@@ -516,15 +526,16 @@ namespace Tk2Gui
             [JsonIgnore] public int TopGear { get { int n = GearRatios != null ? GearRatios.Length : 0; return MaxGear > 0 && MaxGear < n ? MaxGear : n; } }
             [JsonIgnore] public int TachoMaxOrDefault { get { return TachoMax > 0 ? TachoMax : 9000; } }
 
-            /// <summary>DC5 インテグラ Type R の値で埋める (ユーザーの車)</summary>
+            /// <summary>空いている値を、最初の車両のセット (DC5 インテグラ Type R) で埋める</summary>
             public void SetGearedDefaults()
             {
                 Vehicle = "geared";
-                if (Cylinders <= 0) Cylinders = 4;
-                if (GearRatios == null || GearRatios.Length == 0) GearRatios = new[] { 3.266, 2.130, 1.517, 1.212, 0.972, 0.780 };
-                if (!(FinalRatio > 0)) FinalRatio = 4.764;
-                if (string.IsNullOrEmpty(TireSize)) TireSize = "215/45R17";
-                if (TachoMax <= 0) { TachoMax = 9000; TachoYellow = 7500; TachoRed = 8200; }
+                CarPreset d = CarPresets.BuiltIn[0];
+                if (Cylinders <= 0) Cylinders = d.Cylinders;
+                if (GearRatios == null || GearRatios.Length == 0) { GearRatios = (double[])d.GearRatios.Clone(); if (string.IsNullOrEmpty(CarModel)) CarModel = d.Name; }
+                if (!(FinalRatio > 0)) FinalRatio = d.FinalRatio;
+                if (string.IsNullOrEmpty(TireSize)) TireSize = d.TireSize;
+                if (TachoMax <= 0) { TachoMax = d.TachoMax; TachoYellow = d.TachoYellow; TachoRed = d.TachoRed; }
             }
 
             /// <summary>走っているときのタイヤ 1 周 [m]。サイズからのときは表記の 97 % (荷重でつぶれる分)</summary>
@@ -657,7 +668,7 @@ namespace Tk2Gui
             dst.Vehicle = src.Vehicle; dst.Cylinders = src.Cylinders;
             dst.GearRatios = src.GearRatios == null ? null : (double[])src.GearRatios.Clone();
             dst.FinalRatio = src.FinalRatio; dst.TireSize = src.TireSize; dst.TireCircM = src.TireCircM;
-            dst.MaxGear = src.MaxGear; dst.TachoMax = src.TachoMax; dst.TachoYellow = src.TachoYellow; dst.TachoRed = src.TachoRed;
+            dst.MaxGear = src.MaxGear; dst.MaxGearManual = src.MaxGearManual; dst.CarModel = src.CarModel; dst.TachoMax = src.TachoMax; dst.TachoYellow = src.TachoYellow; dst.TachoRed = src.TachoRed;
         }
 
         public static FileData Load(string log)
