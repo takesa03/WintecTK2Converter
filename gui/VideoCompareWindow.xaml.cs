@@ -36,8 +36,17 @@ namespace Tk2Gui
             internal FrameworkElement Cell;
             internal double Shown = double.NaN;     // 表示中のコマの τ
             internal DateTime LastSeek;
-            internal short[] Pcm;                   // τ = Tmin からの音声 (48 kHz ステレオ)
-            internal double VideoT(double tau) { return Lap.StartT + tau - Video.T0; }
+            internal AudioClip Audio;               // 読み込んだ音声 (48 kHz ステレオ)
+            internal double Offset;                 // 揃える位置: 周回の開始から何秒の所を τ = 0 にするか (セクターの開始で揃えるとき)
+            internal double Base { get { return Lap.StartT + Offset; } }    // τ = 0 のログの通算秒
+            internal double VideoT(double tau) { return Base + tau - Video.T0; }
+        }
+
+        /// <summary>音声の切れ端。T0 = 先頭が周回の開始から何秒か</summary>
+        internal sealed class AudioClip
+        {
+            public short[] Pcm;
+            public double T0;
         }
 
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
@@ -45,7 +54,9 @@ namespace Tk2Gui
         readonly CourseDefinition _def;
         readonly List<Lane> _lanes;
         readonly PlayClock _clock = new PlayClock();
-        readonly double _tmin, _tmax;
+        double _tmin, _tmax;                // τ の範囲 (揃える位置の前後。周回の全体が入る)
+        readonly string[] _sectorNames;
+        int _audioVersion;
         double _tau;
         bool _sliderBusy;
         string _ffmpeg;
@@ -60,11 +71,10 @@ namespace Tk2Gui
         {
             InitializeComponent();
             Theme.ApplyDark(this);
-            _def = def; _lanes = lanes;
-            _tmin = -Before;
-            _tmax = lanes.Max(l => l.Lap.LapTime.Value) + After;
-            _sliderBusy = true; TimeSlider.Minimum = _tmin; TimeSlider.Maximum = _tmax; _sliderBusy = false;
+            _def = def; _lanes = lanes; _sectorNames = sectorNames ?? new string[0];
+            UpdateRange();
             _ffmpeg = FfVideo.Ffmpeg();
+            BuildAlignItems();
 
             OverlayLayout layout = null;
             try { layout = VideoKit.LoadLayout(); }
@@ -117,7 +127,7 @@ namespace Tk2Gui
                 foreach (Lane l in _lanes) { l.Pane.StopOverlay(); if (l.Reader != null) l.Reader.Dispose(); }
                 if (_map != null) { try { _map.Close(); } catch (Exception) { } }
             };
-            Status(string.Format(Inv, "両方とも、{0}の開始 (ラインの通過) を 0 秒にして同時に再生します。前後に {1} 秒の余白。スペース = 再生・一時停止、← → = コマ送り、1 / 2 / 3 / 0 = 音声 A / B / 両方 / なし。", kind, Before));
+            Status(string.Format(Inv, "両方とも、{0}の開始 (ラインの通過) を 0 秒にして同時に再生します。「揃える位置」でセクターの開始に揃えることもできます。前後に {1} 秒の余白。スペース = 再生・一時停止、← → = コマ送り、1 / 2 / 3 / 4 / 0 = 音声 A / B / 両方 / 左右 / なし。", kind, Before));
         }
 
         void Status(string s) { StatusText.Text = s; }
@@ -149,25 +159,33 @@ namespace Tk2Gui
             SeekAll(0);
             OpenMap();
 
-            // 音声 (それぞれの範囲を読み込んでおく)
-            if (_lanes.Any(l => l.Vi != null && l.Vi.HasAudio))
+            await LoadAudioAsync();
+        }
+
+        // 音声 (それぞれの範囲を読み込んでおく)。揃える位置を変えたら読み直す
+        async Task LoadAudioAsync()
+        {
+            if (!_lanes.Any(l => l.Vi != null && l.Vi.HasAudio)) return;
+            int ver = ++_audioVersion;
+            string ff = _ffmpeg;
+            Status("音声を読み込み中...  " + StatusText.Text);
+            double tmin = _tmin, dur = _tmax - _tmin;
+            CancellationToken ct = _cancel.Token;
+            try
             {
-                Status("音声を読み込み中...  " + StatusText.Text);
-                double dur = _tmax - _tmin;
-                CancellationToken ct = _cancel.Token;
-                try
+                foreach (Lane l in _lanes)
                 {
-                    foreach (Lane l in _lanes)
-                    {
-                        if (l.Vi == null || !l.Vi.HasAudio) continue;
-                        Lane ln = l;
-                        ln.Pcm = await Task.Run(() => FfVideo.ReadAudio(ff, ln.Video.Path, ln.VideoT(_tmin), dur, ct));
-                    }
-                    if (!ct.IsCancellationRequested) _audio = new WaveOutPlayer(FfVideo.AudioRate, FillAudio);
-                    Status(StatusText.Text.Replace("音声を読み込み中...  ", ""));
+                    if (l.Vi == null || !l.Vi.HasAudio) continue;
+                    Lane ln = l;
+                    double from = ln.VideoT(tmin), t0 = ln.Offset + tmin;
+                    short[] pcm = await Task.Run(() => FfVideo.ReadAudio(ff, ln.Video.Path, from, dur, ct));
+                    if (ver != _audioVersion) return;
+                    ln.Audio = new AudioClip { Pcm = pcm, T0 = t0 };
                 }
-                catch (Exception ex) { Status("音声を出せません: " + ex.Message); }
+                if (!ct.IsCancellationRequested && _audio == null) _audio = new WaveOutPlayer(FfVideo.AudioRate, FillAudio);
+                Status(StatusText.Text.Replace("音声を読み込み中...  ", ""));
             }
+            catch (Exception ex) { if (ver == _audioVersion) Status("音声を出せません: " + ex.Message); }
         }
 
         // ---------------- 並べ方 ----------------
@@ -210,7 +228,7 @@ namespace Tk2Gui
                 _tau = _clock.Now;
                 if (_tau >= _tmax)
                 {
-                    if (LoopCheck.IsChecked == true) { SeekAll(_tmin); _clock.Play(); }
+                    if (LoopCheck.IsChecked == true) { SeekAll(-Before); _clock.Play(); }
                     else { _clock.Pause(); _tau = _tmax; _clock.Set(_tau); PlayButton.Content = "▶ 再生"; }
                 }
             }
@@ -231,7 +249,7 @@ namespace Tk2Gui
                 if (f != null)
                 {
                     l.Pane.ShowFrame(l.Reader, f);
-                    l.Shown = f.T + l.Video.T0 - l.Lap.StartT;
+                    l.Shown = f.T + l.Video.T0 - l.Base;
                     l.Reader.Recycle(f);
                     changed = true;
                 }
@@ -241,12 +259,12 @@ namespace Tk2Gui
 
         void UpdateInfo()
         {
-            TimeText.Text = VideoKit.Clock(_tau) + " / " + VideoKit.Clock(_tmax - After);
+            TimeText.Text = VideoKit.Clock(_tau) + " / " + VideoKit.Clock(_tmax - After) + (AlignIndex > 0 ? "  (" + AlignName + " から)" : "");
             _sliderBusy = true; TimeSlider.Value = Math.Max(_tmin, Math.Min(_tmax, _tau)); _sliderBusy = false;
             foreach (Lane l in _lanes)
             {
                 double tau = double.IsNaN(l.Shown) ? _tau : l.Shown;
-                l.Pane.RequestOverlay(l.Data != null && OverlayCheck.IsChecked == true ? l.Lap.StartT + tau : double.NaN);
+                l.Pane.RequestOverlay(l.Data != null && OverlayCheck.IsChecked == true ? l.Base + tau : double.NaN);
             }
         }
 
@@ -257,13 +275,61 @@ namespace Tk2Gui
             if (_clock.Playing) { _clock.Pause(); _tau = _clock.Now; PlayButton.Content = "▶ 再生"; }
             else
             {
-                if (_tau >= _tmax - 0.05) SeekAll(_tmin);
+                if (_tau >= _tmax - 0.05) SeekAll(-Before);
                 _clock.Set(_tau); _clock.Play(); PlayButton.Content = "⏸ 一時停止";
             }
         }
 
         void Play_Click(object sender, RoutedEventArgs e) { TogglePlay(); }
-        void Restart_Click(object sender, RoutedEventArgs e) { SeekAll(_tmin); }
+        void Restart_Click(object sender, RoutedEventArgs e) { SeekAll(-Before); }
+
+        // ---------------- 揃える位置 (コントロールライン / セクターの開始) ----------------
+
+        int AlignIndex { get { return Math.Max(0, AlignCombo.SelectedIndex); } }
+        string AlignName { get { ComboBoxItem it = AlignCombo.SelectedItem as ComboBoxItem; return it != null ? (string)it.Content : ""; } }
+
+        // 0 = コントロールライン (スタート)、k = セクター k+1 の開始 (k 本目のラインの通過)。両方の周回にそのセクターのタイムがあるものだけ選べる
+        void BuildAlignItems()
+        {
+            AlignCombo.Items.Clear();
+            AlignCombo.Items.Add(new ComboBoxItem { Content = _def.IsGymkhana ? "スタート" : "コントロールライン" });
+            for (int k = 1; k < _sectorNames.Length; k++)
+            {
+                bool ok = _lanes.All(l => l.Lap.Sector != null && l.Lap.Sector.Length >= k && Enumerable.Range(0, k).All(j => l.Lap.Sector[j].HasValue));
+                AlignCombo.Items.Add(new ComboBoxItem { Content = _sectorNames[k] + " の開始", IsEnabled = ok });
+            }
+            AlignCombo.SelectedIndex = 0;
+            AlignCombo.SelectionChanged += Align_Changed;      // 画面ができる前に呼ばれないよう、選んでから付ける
+        }
+
+        // 各周回で、揃える位置が周回の開始から何秒か
+        double OffsetOf(Lane l, int k)
+        {
+            double s = 0;
+            for (int j = 0; j < k; j++) s += l.Lap.Sector[j].Value;
+            return s;
+        }
+
+        void UpdateRange()
+        {
+            _tmin = -Before - _lanes.Max(l => l.Offset);
+            _tmax = _lanes.Max(l => l.Lap.LapTime.Value - l.Offset) + After;
+            _sliderBusy = true; TimeSlider.Minimum = _tmin; TimeSlider.Maximum = _tmax; _sliderBusy = false;
+        }
+
+        async void Align_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_lanes == null || AlignCombo.SelectedItem == null) return;
+            int k = AlignIndex;
+            bool playing = _clock.Playing;
+            if (playing) { _clock.Pause(); PlayButton.Content = "▶ 再生"; }
+            foreach (Lane l in _lanes) l.Offset = k == 0 ? 0 : OffsetOf(l, k);
+            UpdateRange();
+            _audioCursor = double.NaN;
+            if (_map != null) _map.SetShifts(_lanes.Select(l => l.Offset).ToArray());
+            SeekAll(-Before);
+            if (IsLoaded) await LoadAudioAsync();
+        }
 
         void Step(string tag)
         {
@@ -329,30 +395,33 @@ namespace Tk2Gui
             }
             double target = _clock.Now + (_audio != null ? _audio.Latency * 0.875 : 0.14);
             if (double.IsNaN(_audioCursor) || Math.Abs(_audioCursor - target) > 0.06) _audioCursor = target;
-            short[] a = _lanes.Count > 0 ? _lanes[0].Pcm : null, b = _lanes.Count > 1 ? _lanes[1].Pcm : null;
+            // それぞれの音声の位置: 音声の先頭は周回の開始から T0 秒、今の位置は周回の開始から (τ + Offset) 秒
+            AudioClip ca = _lanes.Count > 0 ? _lanes[0].Audio : null, cb = _lanes.Count > 1 ? _lanes[1].Audio : null;
+            short[] a = ca != null ? ca.Pcm : null, b = cb != null ? cb.Pcm : null;
             if (mode == 1) b = null;
             if (mode == 2) a = null;
             double ka = a != null && b != null ? 0.6 : 1.0;
-            int i0 = (int)Math.Round((_audioCursor - _tmin) * FfVideo.AudioRate) * 2;
+            int ia = a != null ? (int)Math.Round((_audioCursor + _lanes[0].Offset - ca.T0) * FfVideo.AudioRate) * 2 : 0;
+            int ib = b != null ? (int)Math.Round((_audioCursor + _lanes[1].Offset - cb.T0) * FfVideo.AudioRate) * 2 : 0;
             if (mode == 4)
             {
                 // 左右に分ける: A (左・上の映像) をモノラルにして L、B (右・下の映像) をモノラルにして R
                 for (int f = 0; f < frames; f++)
                 {
-                    int i = i0 + f * 2;
-                    bool inA = a != null && i >= 0 && i + 1 < a.Length, inB = b != null && i >= 0 && i + 1 < b.Length;
-                    buf[f * 2] = inA ? (short)((a[i] + a[i + 1]) / 2) : (short)0;
-                    buf[f * 2 + 1] = inB ? (short)((b[i] + b[i + 1]) / 2) : (short)0;
+                    int pa = ia + f * 2, pb = ib + f * 2;
+                    bool inA = a != null && pa >= 0 && pa + 1 < a.Length, inB = b != null && pb >= 0 && pb + 1 < b.Length;
+                    buf[f * 2] = inA ? (short)((a[pa] + a[pa + 1]) / 2) : (short)0;
+                    buf[f * 2 + 1] = inB ? (short)((b[pb] + b[pb + 1]) / 2) : (short)0;
                 }
                 _audioCursor += (double)frames / FfVideo.AudioRate;
                 return;
             }
             for (int k = 0; k < frames * 2; k++)
             {
-                int i = i0 + k;
+                int pa = ia + k, pb = ib + k;
                 double v = 0;
-                if (a != null && i >= 0 && i < a.Length) v += a[i] * ka;
-                if (b != null && i >= 0 && i < b.Length) v += b[i] * ka;
+                if (a != null && pa >= 0 && pa < a.Length) v += a[pa] * ka;
+                if (b != null && pb >= 0 && pb < b.Length) v += b[pb] * ka;
                 buf[k] = (short)Math.Max(-32768, Math.Min(32767, v));
             }
             _audioCursor += (double)frames / FfVideo.AudioRate;
@@ -375,8 +444,8 @@ namespace Tk2Gui
                     laps.Add(ReplayLap.Build(label, label, l.Lap.StartT, l.Lap.LapTime.Value, l.Gps, _def.Lat0, _def.Lon0, l.Color));
                 }
                 _map = new ReplayWindow(_def, laps);
-                _map.Owner = this;
                 _map.AttachClock(() => _tau);
+                _map.SetShifts(_lanes.Select(l => l.Offset).ToArray());
                 _map.Closed += (s, e) => _map = null;
                 _map.Show();
             }
@@ -384,5 +453,60 @@ namespace Tk2Gui
         }
 
         void Map_Click(object sender, RoutedEventArgs e) { OpenMap(); }
+
+        // ---------------- ウィンドウの配置 ----------------
+
+        /// <summary>呼び出し元 (ラップ・セクタータイムの画面)。「並べて配置」で左下に置く</summary>
+        public Window Origin { get; set; }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct RECT { public int Left, Top, Right, Bottom; }
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public int dwFlags; }
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern IntPtr MonitorFromWindow(IntPtr hwnd, int flags);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool GetMonitorInfo(IntPtr hMon, ref MONITORINFO mi);
+
+        /// <summary>この画面があるモニターの作業領域 (タスクバーを除く。WPF の単位)</summary>
+        Rect WorkArea()
+        {
+            IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            MONITORINFO mi = new MONITORINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(MONITORINFO)) };
+            if (hwnd == IntPtr.Zero || !GetMonitorInfo(MonitorFromWindow(hwnd, 2), ref mi)) return SystemParameters.WorkArea;
+            Point a = new Point(mi.rcWork.Left, mi.rcWork.Top), b = new Point(mi.rcWork.Right, mi.rcWork.Bottom);
+            PresentationSource src = PresentationSource.FromVisual(this);
+            if (src != null && src.CompositionTarget != null)
+            {
+                Matrix m = src.CompositionTarget.TransformFromDevice;
+                a = m.Transform(a); b = m.Transform(b);
+            }
+            return new Rect(a, b);
+        }
+
+        static void Place(Window w, double x, double y, double width, double height)
+        {
+            if (w == null) return;
+            if (w.WindowState != WindowState.Normal) w.WindowState = WindowState.Normal;
+            w.Left = x; w.Top = y;
+            w.Width = Math.Max(width, w.MinWidth);
+            w.Height = Math.Max(height, w.MinHeight);
+        }
+
+        /// <summary>動画を上半分に大きく、左下にラップ・セクタータイム、右下に地図を並べる</summary>
+        void Arrange_Click(object sender, RoutedEventArgs e)
+        {
+            OpenMap();
+            Rect r = WorkArea();
+            double topH = Math.Round(r.Height * 0.63);
+            double botH = r.Height - topH;
+            double leftW = Math.Round(r.Width * 0.6);
+            Place(this, r.Left, r.Top, r.Width, topH);
+            Place(Origin, r.Left, r.Top + topH, leftW, botH);
+            Place(_map, r.Left + leftW, r.Top + topH, r.Width - leftW, botH);
+            if (Origin != null) Origin.Activate();
+            if (_map != null) _map.Activate();
+            Activate();
+        }
     }
 }

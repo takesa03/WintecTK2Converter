@@ -31,6 +31,9 @@
                 <ComboBoxItem Content="1 ×" Tag="1"/>
                 <ComboBoxItem Content="2 ×" Tag="2"/>
             </ComboBox>
+            <TextBlock Text="揃える位置" VerticalAlignment="Center" Margin="0,0,6,4"/>
+            <ComboBox Name="AlignCombo" Width="150" Margin="0,0,14,4"
+                      ToolTip="2 つの映像をどこで揃えて再生するか。セクターの開始を選ぶと、両方がそのセクターに入った瞬間を 0 秒にして再生します (⏮ と繰り返しもそこから)。地図も同じように揃えます"/>
             <TextBlock Text="音声" VerticalAlignment="Center" Margin="0,0,6,4"/>
             <ComboBox Name="AudioCombo" Width="190" SelectedIndex="0" Margin="0,0,14,4" SelectionChanged="Audio_Changed"
                       ToolTip="どちらの音を聞くか (1 キー = A、2 キー = B、3 キー = 両方、4 キー = 左右に分ける、0 キー = なし)。左右に分けると、A の音をモノラルにして左のスピーカー、B の音を右のスピーカーから出します">
@@ -48,8 +51,10 @@
             <CheckBox Name="OverlayCheck" Content="速度・タイム・セクターを重ねる" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,4"
                       Checked="Overlay_Changed" Unchecked="Overlay_Changed" ToolTip="動画素材の書き出しと同じ表示 (同じレイアウトの設定) を、それぞれの映像に重ねます"/>
             <CheckBox Name="LoopCheck" Content="繰り返す" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,4"/>
-            <Button Content="地図 (航空写真) を開く" Padding="10,4" Margin="0,0,0,4" Click="Map_Click"
+            <Button Content="地図 (航空写真) を開く" Padding="10,4" Margin="0,0,4,4" Click="Map_Click"
                     ToolTip="2 台の位置を航空写真の上で比べる画面を開きます (この画面の再生と一緒に動きます)"/>
+            <Button Content="並べて配置" Padding="10,4" Margin="0,0,0,4" Click="Arrange_Click"
+                    ToolTip="この画面を上に大きく、ラップ・セクタータイムを左下、地図を右下に並べます (この画面があるモニターに合わせます。地図が開いていなければ開きます)"/>
         </WrapPanel>
         <DockPanel Grid.Row="2" Margin="0,2,0,0">
             <TextBlock Name="TimeText" DockPanel.Dock="Right" Width="200" TextAlignment="Right" VerticalAlignment="Center" FontFamily="Consolas"/>

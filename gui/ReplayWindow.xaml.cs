@@ -334,7 +334,7 @@ namespace Tk2Gui
             if (_follow)
             {
                 ReplayLap rf = _laps[_ref];
-                double x, y; rf.PosAt(Math.Min(_t, rf.LapTime), out x, out y);
+                double x, y; rf.PosAt(Math.Max(0, Math.Min(_t + Shift(_ref), rf.LapTime)), out x, out y);
                 _scale = w / _zoomWidthM; _ox = x; _oy = y;
             }
             else { _scale = _fitScale; _ox = _fitOx; _oy = _fitOy; }
@@ -434,24 +434,26 @@ namespace Tk2Gui
             for (int i = 0; i < _laps.Count; i++)
             {
                 ReplayLap l = _laps[i];
-                double tt = Math.Min(_t, l.LapTime);
+                double ti = _t + Shift(i), tr = _t + Shift(_ref);
+                double tt = Math.Max(0, Math.Min(ti, l.LapTime));
                 double x, y; l.PosAt(tt, out x, out y);
                 Point p = ToScreen(x, y);
                 Canvas.SetLeft(_dots[i], p.X - 7); Canvas.SetTop(_dots[i], p.Y - 7);
                 Canvas.SetLeft(_labels[i], p.X + 9); Canvas.SetTop(_labels[i], p.Y - 18);
-                _tSpeed[i].Text = _t >= l.LapTime ? "終了" : l.SpeedAt(tt).ToString("0", Inv) + " km/h";
+                _tSpeed[i].Text = ti >= l.LapTime ? "終了" : l.SpeedAt(tt).ToString("0", Inv) + " km/h";
                 if (i == _ref) { _tGap[i].Text = "基準"; _tGap[i].Foreground = Brushes.Gray; }
                 else
                 {
-                    // 同じ進み具合に基準の周回が着いた時刻との差 (＋ = 基準より遅れ)
-                    double gap = tt - rf.TimeAtProgress(l.ProgressAt(tt));
-                    if (_t >= l.LapTime && _t >= rf.LapTime) gap = l.LapTime - rf.LapTime;
+                    // 同じ進み具合に基準の周回が着いた時刻との差 (＋ = 基準より遅れ)。ずらしているときは、揃えた位置での差を引く
+                    double ds = Shift(i) - Shift(_ref);
+                    double gap = tt - rf.TimeAtProgress(l.ProgressAt(tt)) - ds;
+                    if (ti >= l.LapTime && tr >= rf.LapTime) gap = l.LapTime - rf.LapTime - ds;
                     _tGap[i].Text = (gap >= 0 ? "+" : "-") + Math.Abs(gap).ToString("0.00", Inv);
                     _tGap[i].Foreground = gap > 0.005 ? Theme.Error : gap < -0.005 ? Theme.Ok : Brushes.Gray;
                 }
             }
-            TimeText.Text = Fmt(_t) + " / " + Fmt(_maxDur);
-            _sliderBusy = true; TimeSlider.Value = _t; _sliderBusy = false;
+            TimeText.Text = (_t < 0 ? "-" + Fmt(-_t) : Fmt(_t)) + " / " + Fmt(_maxDur);
+            _sliderBusy = true; TimeSlider.Value = Math.Max(0, _t); _sliderBusy = false;
         }
 
         static string Fmt(double s) { int m = (int)(s / 60); return string.Format(Inv, "{0}:{1:00.0}", m, s - m * 60); }
@@ -461,6 +463,17 @@ namespace Tk2Gui
         // 動画の比較画面から動かすときの時計 (周回の開始からの秒)。null = この画面で再生する
         Func<double> _external;
         double _extLast = double.NaN;
+        double[] _shift;            // 周回ごとのずらし [s] (動画の比較でセクターの開始に揃えるとき)。周回 i の時刻 = 時計 + _shift[i]
+
+        double Shift(int i) { return _shift != null && i < _shift.Length ? _shift[i] : 0; }
+
+        /// <summary>周回ごとに時刻をずらす (揃える位置を変えたとき)。差は揃えた位置からの差になる</summary>
+        public void SetShifts(double[] shift)
+        {
+            _shift = shift;
+            _extLast = double.NaN;
+            UpdateFrame();
+        }
 
         /// <summary>時刻を外から与える (動画の比較画面と連動)。再生の操作は隠す</summary>
         public void AttachClock(Func<double> clock)
@@ -481,7 +494,7 @@ namespace Tk2Gui
             double dt = (now - _last).TotalSeconds; _last = now;
             if (_external != null)
             {
-                double te = Math.Max(0, Math.Min(_maxDur, _external()));
+                double te = Math.Max(-_maxDur, Math.Min(_maxDur, _external()));
                 if (te != _extLast) { _extLast = te; _t = te; UpdateFrame(); }
                 return;
             }

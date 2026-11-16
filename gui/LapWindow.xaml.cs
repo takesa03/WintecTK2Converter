@@ -652,7 +652,11 @@ namespace Tk2Gui
                 for (int i = 0; i < 2; i++)
                     lanes.Add(new VideoCompareWindow.Lane { Sess = ok[i].Sess, Lap = ok[i].Rec, Gps = g[i], Video = vids[i], Color = ReplayWindow.Palette[i] });
                 VideoCompareWindow w = new VideoCompareWindow(def, _res.SectorNames, lanes);
-                w.Owner = this;
+                // Owner にすると常にこの画面より手前になるので付けない。閉じるときだけ一緒に閉じる
+                w.Origin = this;
+                EventHandler closeChild = (s2, e2) => { try { w.Close(); } catch (Exception) { } };
+                Closed += closeChild;
+                w.Closed += (s2, e2) => Closed -= closeChild;
                 w.Show();
             }
             catch (Exception ex)
