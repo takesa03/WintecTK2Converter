@@ -93,6 +93,13 @@ namespace Tk2Gui
             _wake.Set();
         }
 
+        /// <summary>同じ時刻のまま描き直してもらう (表示のデータを変えたとき)</summary>
+        public void RefreshOverlay()
+        {
+            lock (_reqLock) { if (double.IsNaN(_reqT)) return; _reqDirty = true; }
+            _wake.Set();
+        }
+
         public void StopOverlay()
         {
             _stop = true;

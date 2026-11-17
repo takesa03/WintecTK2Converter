@@ -86,6 +86,7 @@ namespace Tk2Gui
                 _data = new OverlayData(def, sess, sectorNames, gps, VideoKit.Options(_layout), 600, 600);
             }
             catch (Exception ex) { Status("表示を重ねる準備ができません: " + ex.Message); }
+            UpdateFitText();
 
             if (_ffmpeg == null)
             {
@@ -451,6 +452,141 @@ namespace Tk2Gui
             VehicleCombo.SelectedIndex = idx;
         }
 
+        // ---------------- 心拍 (FIT ファイル) ----------------
+
+        async void Fit_Click(object sender, RoutedEventArgs e)
+        {
+            if (_data == null) { Status("表示を重ねる準備ができていないので、心拍を合わせられません。"); return; }
+            OpenFileDialog d = new OpenFileDialog { Filter = "FIT ファイル (*.fit)|*.fit|すべて (*.*)|*.*", Title = "心拍の FIT ファイルを開く" };
+            Settings.InitialDir(d, "FitDir");
+            if (d.ShowDialog(this) != true) return;
+            Settings.RememberDir("FitDir", d.FileName);
+            FitFile fit;
+            try { fit = FitReader.Load(d.FileName); }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "FIT ファイルを読めません", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            HeartStore.Entry en = HeartStore.FromFit(fit, _sess.No, 0);
+            if (en.T.Length == 0) { MessageBox.Show(this, "この FIT ファイルには心拍の記録がありません。", "心拍がありません", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+
+            // 時計のずれ: 腕時計の時計は日付ごと狂っていることがあるので、FIT の時刻は使わず、
+            // このセッションの前後 10 分の中で、速度の形がいちばん合う所を探す。
+            // セッションが FIT より短い (GPS のずれで周回が取れずセッションが途中で切れた など) ときは、
+            // FIT が丸ごと入るように、セッションの中央から FIT の長さの半分 + 10 分まで広げる
+            OverlayData data = _data;
+            double mid = (_sess.StartT + _sess.EndT) / 2;
+            double half = Math.Max(_sess.EndT - _sess.StartT, en.To - en.From) / 2 + 600;
+            double from = Math.Max(_gps[0].T, mid - half), to = Math.Min(_gps[_gps.Count - 1].T, mid + half);
+            FitButton.IsEnabled = false;
+            Status("FIT の速度とログの速度を比べています...");
+            List<HeartStore.Candidate> cands;
+            try { cands = await Task.Run(() => HeartStore.EstimateOffsets(fit, data.SpeedAt, from, to, _sess.StartT, _sess.EndT)); }
+            finally { FitButton.IsEnabled = true; }
+
+            if (cands.Count == 0)
+            {
+                // 速度で合わせられない (FIT に速度が無い・短い)。FIT の時刻のまま、セッションに重なるかだけ見る
+                if (en.From > _sess.EndT || en.To < _sess.StartT)
+                {
+                    Func<double, string> dt = t => new DateTime(2000, 1, 1).AddSeconds(t).AddHours(9).ToString("yyyy/MM/dd HH:mm:ss", Inv);
+                    MessageBox.Show(this, string.Format(Inv, "FIT ファイルに速度の記録が無い (または短い) ので速度で合わせられず、時刻もこのセッションに重なっていません。\n\nFIT:\t\t{0} 〜 {1}\nこのセッション:\t{2} 〜 {3}\n\n別の日・別の時間の記録ではないか確かめてください。",
+                        dt(en.From), dt(en.To), dt(_sess.StartT), dt(_sess.EndT)), "時刻を合わせられません", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    Status("");
+                    return;
+                }
+                Status("FIT の速度で時計のずれを求められなかったので、FIT の時刻のまま保存しました。映像と見比べて、下のボタンで直してください。");
+            }
+            else
+            {
+                HeartStore.Candidate c = cands[0];
+                en.Offset = c.Offset; en.AutoOffset = c.Offset; en.Candidates = cands;
+                Status(string.Format(Inv, "速度の形で合わせました: FIT の先頭 = {0} (腕時計の時計のずれ {1})。{2} に保存しました。{3}",
+                    VideoKit.Local(en.T[0] + c.Offset), FmtOffset(c.Offset), Path.GetFileName(HeartStore.SidecarPath(_log)),
+                    c.Corr < 0.5 || c.Agree * 2 <= c.Windows ? "合い方が弱いので、ほかの候補も見比べてください。" : ""));
+            }
+            HeartStore.Put(_log, en);
+            HeartChanged();
+        }
+
+        /// <summary>ずれの表示 (腕時計の時計が日単位で狂っていることがあるので、日・時刻で)</summary>
+        static string FmtOffset(double off)
+        {
+            string sign = off < 0 ? "−" : "+";
+            TimeSpan ts = TimeSpan.FromSeconds(Math.Abs(off));
+            if (ts.TotalSeconds < 60) return string.Format(Inv, "{0}{1:0.0} 秒", sign, ts.TotalSeconds);
+            return string.Format(Inv, "{0}{1}{2:hh\\:mm\\:ss\\.f}", sign, ts.Days > 0 ? ts.Days + " 日 " : "", ts);
+        }
+
+        void FitNudge_Click(object sender, RoutedEventArgs e)
+        {
+            HeartStore.Entry en = HeartStore.Get(_log, _sess.No);
+            if (en == null) { Status("先に「FIT を開く...」で心拍のファイルを選んでください。"); return; }
+            string tag = (string)((Button)sender).Tag;
+            if (tag == "auto")
+            {
+                if (!en.AutoOffset.HasValue) { Status("自動で求めたずれがありません (速度で合わせられなかった FIT です)。"); return; }
+                en.Offset = en.AutoOffset.Value;
+            }
+            else en.Offset = Math.Round(en.Offset + double.Parse(tag, Inv), 1);
+            HeartStore.Put(_log, en);
+            HeartChanged();
+        }
+
+        void FitCand_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_fitFill) return;
+            ComboBoxItem it = FitCandCombo.SelectedItem as ComboBoxItem;
+            HeartStore.Entry en = HeartStore.Get(_log, _sess.No);
+            if (it == null || en == null) return;
+            HeartStore.Candidate c = (HeartStore.Candidate)it.Tag;
+            en.Offset = c.Offset; en.AutoOffset = c.Offset;
+            HeartStore.Put(_log, en);
+            Status("候補を切り替えました: FIT の先頭 = " + VideoKit.Local(en.T[0] + c.Offset));
+            HeartChanged();
+        }
+
+        void FitRemove_Click(object sender, RoutedEventArgs e)
+        {
+            if (HeartStore.Get(_log, _sess.No) == null) { Status("このセッションには心拍がありません。"); return; }
+            HeartStore.Remove(_log, _sess.No);
+            Status("このセッションの心拍を外しました。");
+            HeartChanged();
+        }
+
+        /// <summary>heart.json を変えたあと: 表示を読み直す</summary>
+        void HeartChanged()
+        {
+            if (_data != null) _data.ReloadHeart();
+            UpdateFitText();
+            _pane.RefreshOverlay();
+        }
+
+        bool _fitFill;
+        void UpdateFitText()
+        {
+            HeartStore.Entry en = HeartStore.Get(_log, _sess.No);
+            _fitFill = true;
+            FitCandCombo.Items.Clear();
+            if (en != null && en.Candidates != null)
+                foreach (HeartStore.Candidate c in en.Candidates)
+                {
+                    ComboBoxItem it = new ComboBoxItem { Content = HeartStore.CandidateText(c, en.T[0]), Tag = c };
+                    FitCandCombo.Items.Add(it);
+                    if (en.AutoOffset.HasValue && Math.Abs(c.Offset - en.AutoOffset.Value) < 0.05) FitCandCombo.SelectedItem = it;
+                }
+            FitCandCombo.IsEnabled = FitCandCombo.Items.Count > 1;
+            _fitFill = false;
+            if (en == null) { FitText.Text = "心拍なし (表示しません)"; return; }
+            double lo = double.MaxValue, hi = 0;
+            for (int i = 0; i < en.T.Length; i++)
+            {
+                double t = en.T[i] + en.Offset;
+                if (t < _sess.StartT || t > _sess.EndT) continue;
+                lo = Math.Min(lo, en.Bpm[i]); hi = Math.Max(hi, en.Bpm[i]);
+            }
+            FitText.Text = string.Format(Inv, "{0}  {1}\nFIT の先頭 = {2}\n腕時計のずれ {3}{4}\n{5}",
+                en.Device, Path.GetFileName(en.Fit), VideoKit.Local(en.T[0] + en.Offset), FmtOffset(en.Offset),
+                en.AutoOffset.HasValue ? (Math.Abs(en.Offset - en.AutoOffset.Value) < 0.05 ? " (自動)" : string.Format(Inv, " (自動から {0:+0.0;-0.0;0.0} 秒)", en.Offset - en.AutoOffset.Value)) : " (自動で求められず)",
+                hi > 0 ? string.Format(Inv, "このセッションの心拍 {0:0}〜{1:0} bpm", lo, hi) : "このセッションの時間に心拍の記録がありません");
+        }
         string SelectedVehicle()
         {
             ComboBoxItem it = VehicleCombo.SelectedItem as ComboBoxItem;

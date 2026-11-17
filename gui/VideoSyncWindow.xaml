@@ -71,6 +71,32 @@
                         </StackPanel>
                     </StackPanel>
                 </GroupBox>
+                <GroupBox Header="心拍 (腕時計などの FIT ファイルから)" Margin="0,10,0,0">
+                    <StackPanel Margin="4">
+                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"
+                                   Text="FIT ファイルの速度とログの速度を比べて時計のずれを求め、心拍を「ログ名.heart.json」に保存します。保存すると、ドライバー名の右にハートと心拍数が出ます (無ければ出ません)。ずれは下のボタンで直せます。"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Name="FitButton" Content="FIT を開く..." Padding="12,4" Click="Fit_Click"
+                                    ToolTip="このセッションのドライバーが着けていた腕時計などの FIT ファイルを選びます"/>
+                            <Button Name="FitRemoveButton" Content="外す" Padding="8,4" Margin="6,0,0,0" Click="FitRemove_Click"
+                                    ToolTip="このセッションの心拍を外します (表示しなくなります)"/>
+                        </StackPanel>
+                        <TextBlock Name="FitText" Margin="0,6,0,4" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"/>
+                        <DockPanel Margin="0,0,0,4">
+                            <TextBlock Text="候補" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <ComboBox Name="FitCandCombo" VerticalAlignment="Center" SelectionChanged="FitCand_Changed"
+                                      ToolTip="速度の形で合わせた候補 (相関の高い順)。周回ごとに似た形が繰り返すので、1 周ずれた所が候補に入ることがあります。&#x0A;「揃い」= 走った所を数分ごとに区切って合わせ直したとき、同じ所に揃った区間の数 (多いほど確か)"/>
+                        </DockPanel>
+                        <TextBlock Text="心拍を動画に対して動かす" Margin="0,2,0,2" FontSize="12"/>
+                        <WrapPanel>
+                            <Button Content="−1 秒" Tag="-1" Padding="6,2" Margin="0,0,4,4" Click="FitNudge_Click"/>
+                            <Button Content="−0.1" Tag="-0.1" Padding="6,2" Margin="0,0,4,4" Click="FitNudge_Click"/>
+                            <Button Content="＋0.1" Tag="0.1" Padding="6,2" Margin="0,0,4,4" Click="FitNudge_Click"/>
+                            <Button Content="＋1 秒" Tag="1" Padding="6,2" Margin="0,0,4,4" Click="FitNudge_Click"/>
+                            <Button Content="自動に戻す" Tag="auto" Padding="6,2" Margin="0,0,4,4" Click="FitNudge_Click"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </GroupBox>
                 <GroupBox Name="ClipGroup" Header="選んだ周回を切り出す" Margin="0,10,0,0">
                     <StackPanel Margin="4">
                         <WrapPanel>

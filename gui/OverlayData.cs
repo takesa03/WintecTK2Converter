@@ -52,6 +52,8 @@ namespace Tk2Gui
         public double Throttle = double.NaN; // アクセル 0 (OFF) 〜 1 (ON)。前後 0.15 秒の ON の割合。不明なら NaN
         public int Gear;                     // 変速機付き: いまのギア (0 = 分からない)
         public double SlipBase = double.NaN; // 空転の判定の基準の回転数 (音の回転数がこれより slip % 以上高いと SLIP)
+        public double HeartRate = double.NaN; // 心拍 [bpm] (ログ名.heart.json が無い・その時刻の記録が無ければ NaN)
+        public double HeartPhase;            // 鼓動の位相 0 (拍の直後) 〜 1 (次の拍の直前)
 
         public int SessionNo;
         public string LapName = "";          // タイムの左に出す周回の名前 (LAP 3 / Heat 2 など)
@@ -85,6 +87,7 @@ namespace Tk2Gui
         public readonly double StartT, EndT;           // 書き出す範囲 (ログの通算秒)
         public readonly double MaxSpeedKmh;            // セッション内の最高速 (速度計の目盛りの最大値を決める)
         public readonly EngineStore.FileData Engine;   // 回転数・アクセルの解析結果 (ログ名.engine.json。無ければ null)
+        public volatile HeartTrack Heart;              // 心拍 (ログ名.heart.json。無ければ null = 表示しない)。時刻合わせの画面で入れ替える
 
         readonly List<GpsSample> _gps;
         readonly double[] _t, _x, _y, _v, _alt, _lat, _lon, _cum;
@@ -140,6 +143,13 @@ namespace Tk2Gui
             MaxSpeedKmh = mx;
             Engine = EngineStore.Load(sess.FilePath);
             if (Engine != null && !Engine.IsGeared && !(Engine.RpmPerKmh > 0)) Engine = null;
+            ReloadHeart();
+        }
+
+        /// <summary>心拍 (ログ名.heart.json) を読み直す</summary>
+        public void ReloadHeart()
+        {
+            Heart = HeartTrack.For(Sess.FilePath, Sess.No);
         }
 
         /// <summary>回転数 (直結なので 係数 × メーターの速度)・音から求めた回転数・アクセルを入れる</summary>
@@ -413,7 +423,10 @@ namespace Tk2Gui
             Locate(t, out i, out f, out gap);
             st.SpeedKmh = SmoothSpeedAt(t);
             FillEngine(st, t);
-            st.X = Lerp(_x, i, f); st.Y = Lerp(_y, i, f);
+            HeartTrack heart = Heart;
+            double bpm, ph;
+            if (heart != null && heart.At(t, out bpm, out ph)) { st.HeartRate = bpm; st.HeartPhase = ph; }
+            st.X =Lerp(_x, i, f); st.Y = Lerp(_y, i, f);
             st.Lat = Lerp(_lat, i, f); st.Lon = Lerp(_lon, i, f);
             st.Alt = double.IsNaN(_alt[i]) ? double.NaN : (f > 0 && !double.IsNaN(_alt[i + 1]) ? Lerp(_alt, i, f) : _alt[i]);
             int i0; double f0; bool g0;

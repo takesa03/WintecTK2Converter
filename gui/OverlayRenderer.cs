@@ -392,9 +392,43 @@ namespace Tk2Gui
             string t = head + (string.IsNullOrWhiteSpace(st.Driver) ? "" : "   Driver " + st.Driver.Trim());
             FormattedText ft = Ft(t, size, Colors.White);
             double w = ft.WidthIncludingTrailingWhitespace;
-            Point p = Place(s, w, size);
-            Text(dc, t, size, s.Col("color", "#FFFFFF"), p.X + w, p.Y, 1, 0, Math.Max(1, size / 18), Colors.Black);
+            // 心拍: 解析結果 (heart.json) があるときだけ、ドライバー名の右にハートと 3 桁の数字。
+            // 幅はいつも取っておく (記録の途切れで文字の位置が動かないように)
+            bool heart = D.Heart != null && (L.Shown("heart") || !L.Sections.ContainsKey("heart"));
+            double cell = Cell(size), hw = size * 0.85, gap = size * 0.45, hwAll = heart ? gap + hw + size * 0.2 + cell * 3 : 0;
+            Point p = Place(s, w + hwAll, size);
+            double sw = Math.Max(1, size / 18);
+            Text(dc, t, size, s.Col("color", "#FFFFFF"), p.X + w, p.Y, 1, 0, sw, Colors.Black);
+            if (heart && !double.IsNaN(st.HeartRate)) DrawHeart(dc, st, p.X + w + gap, p.Y + ft.Height / 2, hw, size, cell, p.X + w + hwAll, p.Y, sw);
             _bottom["session"] = p.Y + size * 1.1;
+        }
+
+        /// <summary>
+        /// ハート (鼓動に合わせて明暗) と心拍の数字。x = ハートの左端、cy = 行の中央、xr = 数字の右端、ty = 文字の上端
+        /// </summary>
+        void DrawHeart(DrawingContext dc, OverlayState st, double x, double cy, double hw, double size, double cell, double xr, double ty, double sw)
+        {
+            OverlaySection s = L["heart"];
+            Color bright = s.Col("color", "#FF2040"), dim = s.Col("dim", "#601018");
+            // 拍の瞬間に明るくなり、次の拍までに暗くなる
+            double k = Math.Exp(-st.HeartPhase * s.Num("decay", 4.0));
+            Color c = Color.FromArgb((byte)(dim.A + (bright.A - dim.A) * k), (byte)(dim.R + (bright.R - dim.R) * k),
+                                     (byte)(dim.G + (bright.G - dim.G) * k), (byte)(dim.B + (bright.B - dim.B) * k));
+            double hh = hw * 0.9, y0 = cy - hh / 2;
+            Func<double, double, Point> pt = (u, v) => new Point(x + u * hw, y0 + v * hh);
+            StreamGeometry g = new StreamGeometry();
+            using (StreamGeometryContext gc = g.Open())
+            {
+                gc.BeginFigure(pt(0.5, 1), true, true);
+                gc.BezierTo(pt(0.12, 0.72), pt(-0.04, 0.38), pt(0.14, 0.14), true, true);
+                gc.BezierTo(pt(0.3, -0.04), pt(0.46, 0.04), pt(0.5, 0.24), true, true);
+                gc.BezierTo(pt(0.54, 0.04), pt(0.7, -0.04), pt(0.86, 0.14), true, true);
+                gc.BezierTo(pt(1.04, 0.38), pt(0.88, 0.72), pt(0.5, 1), true, true);
+            }
+            g.Freeze();
+            dc.DrawGeometry(Br(c), P(Colors.Black, sw), g);
+            string n = Math.Round(st.HeartRate).ToString("0", Inv);
+            Mono(dc, n, size, cell, xr, ty, s.Col("numcolor", "#FFFFFF"), sw);
         }
 
         void DrawLap(DrawingContext dc, OverlayState st)
