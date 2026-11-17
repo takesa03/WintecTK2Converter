@@ -77,6 +77,7 @@ namespace Tk2Gui
             st.Check(AudioCheck, "Audio");
             st.Check(BurnCheck, "Burn");
             st.Check(OverlayCheck, "Overlay");
+            OverlayPrefs.BindGraph(GraphCheck, () => _pane.RefreshOverlay());   // 速度のグラフ (書き出し・動画で比較と共通)
             FillVehicles();
             Settings.Track(this, "VideoSyncWindow", () => { st.SaveAll(); Settings.Set("VideoSync.VehicleName", SelectedVehicle()); });
 

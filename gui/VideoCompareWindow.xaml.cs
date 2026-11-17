@@ -111,6 +111,7 @@ namespace Tk2Gui
             st.Combo(AudioCombo, "Audio");
             st.Combo(LayoutCombo, "Layout");
             st.Check(OverlayCheck, "Overlay");
+            OverlayPrefs.BindGraph(GraphCheck, () => { foreach (Lane l in _lanes) l.Pane.RefreshOverlay(); });   // 速度のグラフ (書き出し・時刻合わせと共通)
             st.Check(LoopCheck, "Loop");
             Settings.Track(this, "VideoCompareWindow", st.SaveAll);
             ApplyLayout();

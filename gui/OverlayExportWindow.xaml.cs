@@ -57,6 +57,7 @@ namespace Tk2Gui
             st.Text(BeforeBox, "Before");
             st.Text(AfterBox, "After");
             st.Combo(FormatCombo, "Format");
+            OverlayPrefs.BindGraph(GraphCheck, UpdatePreview);   // 速度のグラフ (時刻合わせ・動画で比較と共通の設定)
             if (_runs.Count > 0) st.Custom("GymRange", () => RangeCombo.SelectedIndex <= 1 ? RangeCombo.SelectedIndex.ToString(Inv) : null,
                 v => { int k; if (int.TryParse(v, out k) && k >= 0 && k <= 1) RangeCombo.SelectedIndex = k; });
             Settings.Track(this, "OverlayExportWindow", st.SaveAll);

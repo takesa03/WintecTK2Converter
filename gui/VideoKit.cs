@@ -4,6 +4,48 @@ using System.IO;
 
 namespace Tk2Gui
 {
+    /// <summary>
+    /// 重ねる表示の、画面のチェックで切り替える設定 (動画素材の書き出し・走行動画の時刻合わせ・動画で比較で共通)。
+    /// どこかで変えると、開いているほかの画面のチェックと表示にもすぐ反映する
+    /// </summary>
+    public static class OverlayPrefs
+    {
+        const string GraphKey = "Overlay.Graph";
+        static volatile bool _graph = Settings.Get(GraphKey) == "1";   // 描く側 (別スレッド) から読む
+
+        /// <summary>速度のグラフ ([graph]) を出すか</summary>
+        public static bool Graph { get { return _graph; } }
+
+        public static event Action Changed;
+
+        static void SetGraph(bool on)
+        {
+            if (_graph == on) return;
+            _graph = on;
+            Settings.Set(GraphKey, on ? "1" : "0");
+            try { Settings.Save(); } catch (Exception) { }
+            Action h = Changed;
+            if (h != null) h();
+        }
+
+        /// <summary>チェックボックスを共通の設定につなぐ。changed は、この画面の表示を描き直す処理 (ほかの画面で変えたときも呼ぶ)</summary>
+        public static void BindGraph(System.Windows.Controls.CheckBox cb, Action changed)
+        {
+            bool sync = false;
+            cb.IsChecked = _graph;
+            System.Windows.RoutedEventHandler h = (s, e) => { if (!sync) SetGraph(cb.IsChecked == true); };
+            cb.Checked += h; cb.Unchecked += h;
+            Action onChanged = () =>
+            {
+                sync = true;
+                try { cb.IsChecked = _graph; } finally { sync = false; }
+                if (changed != null) changed();
+            };
+            Changed += onChanged;
+            cb.Unloaded += (s, e) => { Changed -= onChanged; };
+        }
+    }
+
     /// <summary>走行動画の画面で共通に使うもの</summary>
     public static class VideoKit
     {

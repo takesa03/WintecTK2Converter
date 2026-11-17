@@ -160,12 +160,14 @@ namespace Tk2Gui
         public void Draw(DrawingContext dc, OverlayState st)
         {
             _bottom.Clear();
+            _sectorBox = Rect.Empty;
             if (L.Shown("map")) DrawMap(dc, st);
             if (L.Shown("speedometer")) DrawSpeed(dc, st);
             if (L.Shown("gmeter")) DrawG(dc, st);
             if (L.Shown("session")) DrawSession(dc, st);
             if (L.Shown("laptime")) DrawLap(dc, st);
             if (L.Shown("sector")) DrawSector(dc, st);
+            if (OverlayPrefs.Graph) DrawGraph(dc, st);   // 画面のチェックで出し入れ (ini の [graph] は色・大きさだけ)。セクター表示の上に置くので、その後に
             if (L.Shown("info")) DrawInfo(dc, st);
             // 回転計: 解析結果 (engine.json) があるときだけ。ini に節が無いレイアウトでも既定の位置に出す
             if (D.Engine != null && (L.Shown("tacho") || !L.Sections.ContainsKey("tacho"))) DrawTacho(dc, st);
@@ -466,6 +468,113 @@ namespace Tk2Gui
             _bottom["laptime"] = p.Y + h;
         }
 
+        Rect _sectorBox = Rect.Empty;   // このフレームのセクター表示の枠 (グラフをその上に置くため)
+
+        /// <summary>
+        /// 距離ごとの速度のグラフ。その時点のベストの周回を透過の面と線で背景に、走行中の周回を線で伸ばしていく
+        /// (ラインを通ると消えて描き直す)。既定はセクター表示の上 (above = sector)、右上のラップタイムには重ねない
+        /// </summary>
+        void DrawGraph(DrawingContext dc, OverlayState st)
+        {
+            double span = D.GraphSpan;
+            if (!(span > 0) || (st.GraphBest == null && st.GraphCur == null)) return;
+            OverlaySection s = L["graph"];
+            bool gym = D.Def.IsGymkhana;
+            double w = s.Num("width", 0) * U, h = s.Num("height", 220) * U;
+            bool onSector = !gym && s.Str("above", "sector").Equals("sector", StringComparison.OrdinalIgnoreCase) && !_sectorBox.IsEmpty;
+            if (w <= 0) w = onSector ? _sectorBox.Width : 480 * U;
+            Point p;
+            if (onSector) p = new Point(_sectorBox.Right - w, _sectorBox.Top - s.Num("y", 12) * U - h);
+            else p = Place(s, w, h);
+            // 右上のラップタイムの表示に重ねない (重なる分は高さを縮める)
+            double lapBottom;
+            if (L.Shown("laptime") && _bottom.TryGetValue("laptime", out lapBottom) && p.Y < lapBottom + 8 * U && p.X + w > _lapRight - Cell(L["laptime"].Num("size", 34) * U) * 14)
+            {
+                double bottom = p.Y + h;
+                p.Y = lapBottom + 8 * U;
+                h = bottom - p.Y;
+            }
+            if (h < 40 * U || w < 60 * U) return;
+
+            double vmax = Math.Max(30, Math.Ceiling(D.MaxSpeedKmh * 1.05 / 10) * 10);
+            double lw = Math.Max(1, s.Num("linewidth", 3) * U);
+            Color cc = s.Col("current", "#FFFF80"), bc = s.Col("best", "#00FFFF"), gc = s.Col("gatecolor", "#FFFFFF");
+            double fill = Math.Max(0, Math.Min(1, s.Num("fill", 0.10))), back = Math.Max(0, Math.Min(1, s.Num("back", 0.12)));
+            Func<double, double> X = d => p.X + Math.Max(0, Math.Min(span, d)) / span * w;
+            Func<double, double> Y = v => p.Y + h - Math.Max(0, Math.Min(vmax, double.IsNaN(v) ? 0 : v)) / vmax * h;
+
+            dc.PushOpacity(Math.Max(0, Math.Min(1, s.Num("opacity", 1))));
+            if (back > 0) dc.DrawRectangle(Br(Color.FromArgb((byte)(back * 255), 0, 0, 0)), null, new Rect(p.X, p.Y, w, h));
+            double fs = Math.Max(8, s.Num("labelsize", 22) * U), sw = Math.Max(1, fs / 18);
+            if (s.Bool("gates", true))
+            {
+                Pen gp = new Pen(Br(Color.FromArgb(80, gc.R, gc.G, gc.B)), Math.Max(1, 2 * U)) { DashStyle = new DashStyle(new double[] { 3, 3 }, 0) };
+                gp.Freeze();
+                for (int j = 0; j < D.GraphGates.Length; j++)
+                {
+                    double x = Math.Round(X(D.GraphGates[j])) + 0.5;
+                    dc.DrawLine(gp, new Point(x, p.Y), new Point(x, p.Y + h));
+                    string name = st.SecNames != null && j < st.SecNames.Length ? st.SecNames[j] : "S" + (j + 1).ToString(Inv);
+                    Text(dc, name, fs, Color.FromArgb(200, gc.R, gc.G, gc.B), x + 6 * U, p.Y + 4 * U, 0, 0, sw, Colors.Black);
+                }
+            }
+            Text(dc, "km/h", fs * 0.9, Color.FromArgb(200, 255, 255, 255), p.X + w - 6 * U, p.Y + 4 * U, 1, 0, sw, Colors.Black);
+
+            int stride = 1;   // 1 m ごとの点を、だいたい画面の 1 画素に 1 点まで間引く
+            if (st.GraphBest != null) stride = Math.Max(1, (int)(st.GraphBest.V.Length / Math.Max(1, w)));
+            Pen edge = P(Colors.Black, lw + 2 * Math.Max(1, U * 1.5));
+            CompareRun b = st.GraphBest;
+            if (b != null && b.V.Length > 1)
+            {
+                int n = b.V.Length;
+                StreamGeometry area = new StreamGeometry(), line = new StreamGeometry();
+                using (StreamGeometryContext g = area.Open())
+                {
+                    g.BeginFigure(new Point(X(0), Y(0)), true, true);
+                    for (int i = 0; i < n; i += stride) g.LineTo(new Point(X(i * RunCompare.Step), Y(b.V[i])), false, false);
+                    g.LineTo(new Point(X((n - 1) * RunCompare.Step), Y(b.V[n - 1])), false, false);
+                    g.LineTo(new Point(X((n - 1) * RunCompare.Step), Y(0)), false, false);
+                }
+                using (StreamGeometryContext g = line.Open())
+                {
+                    g.BeginFigure(new Point(X(0), Y(b.V[0])), false, false);
+                    for (int i = stride; i < n; i += stride) g.LineTo(new Point(X(i * RunCompare.Step), Y(b.V[i])), true, true);
+                    g.LineTo(new Point(X((n - 1) * RunCompare.Step), Y(b.V[n - 1])), true, true);
+                }
+                area.Freeze(); line.Freeze();
+                if (fill > 0) dc.DrawGeometry(Br(Color.FromArgb((byte)(fill * 255), bc.R, bc.G, bc.B)), null, area);
+                dc.DrawGeometry(null, edge, line);
+                dc.DrawGeometry(null, P(bc, lw), line);
+            }
+            CompareRun c = st.GraphCur;
+            if (c != null && c.V.Length > 1)
+            {
+                // 経過時間まで (T は距離の順に増える)
+                int k = Array.BinarySearch(c.T, st.GraphEl);
+                if (k < 0) k = ~k - 1;
+                k = Math.Max(0, Math.Min(c.T.Length - 1, k));
+                double lastX = k * RunCompare.Step, lastV = c.V[k];
+                if (k + 1 < c.T.Length && c.T[k + 1] > c.T[k])
+                {
+                    double u = Math.Max(0, Math.Min(1, (st.GraphEl - c.T[k]) / (c.T[k + 1] - c.T[k])));
+                    lastX = (k + u) * RunCompare.Step; lastV = c.V[k] + (c.V[k + 1] - c.V[k]) * u;
+                }
+                StreamGeometry line = new StreamGeometry();
+                using (StreamGeometryContext g = line.Open())
+                {
+                    g.BeginFigure(new Point(X(0), Y(c.V[0])), false, false);
+                    for (int i = stride; i <= k; i += stride) g.LineTo(new Point(X(i * RunCompare.Step), Y(c.V[i])), true, true);
+                    g.LineTo(new Point(X(lastX), Y(lastV)), true, true);
+                }
+                line.Freeze();
+                dc.DrawGeometry(null, edge, line);
+                dc.DrawGeometry(null, P(cc, lw * 1.3), line);
+                double r = Math.Max(2, s.Num("dotsize", 8) * U);
+                dc.DrawEllipse(Br(cc), P(Colors.Black, Math.Max(1, 2 * U)), new Point(X(lastX), Y(lastV)), r, r);
+            }
+            dc.Pop();
+        }
+
         void DrawSector(DrawingContext dc, OverlayState st)
         {
             OverlaySection s = L["sector"];
@@ -481,6 +590,7 @@ namespace Tk2Gui
             if (gym && L.Shown("laptime") && _bottom.TryGetValue("laptime", out lapBottom))
                 p = new Point(_lapRight - w, lapBottom + lh * 0.5);   // ラップタイムの下に、右端をそろえて置く
             double y = p.Y;
+            _sectorBox = new Rect(p.X, p.Y, w, h);
             Color col = s.Col("color", "#FFFFFF"), run = s.Col("running", "#FFFF80"), best = s.Col("best", "#00FFFF"),
                   plus = s.Col("plus", "#FF0000"), minus = s.Col("minus", "#4080FF");
             Func<int, double> xr = j => p.X + cell * (labw + (colw + 1) * (j + 1));

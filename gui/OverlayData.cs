@@ -72,6 +72,11 @@ namespace Tk2Gui
         public double?[] SecDelta;
         public string[] SecBest;
         public List<SectorLine> SecHistory = new List<SectorLine>();   // 古い順
+
+        // 距離ごとの速度のグラフ ([graph])
+        public CompareRun GraphBest;         // その時点のベストの周回 (無ければ null)
+        public CompareRun GraphCur;          // 走行中の周回 (線を描かない周回なら null)
+        public double GraphEl;               // 走行中の周回の経過時間 [s]
     }
 
     public sealed class OverlayData
@@ -94,6 +99,11 @@ namespace Tk2Gui
         readonly List<LapRecord> _laps;
         readonly LapRecord _only;            // 1 本だけ書き出すときの走行 (null = セッション全体)
         readonly Dictionary<string, ReplayLap> _ref = new Dictionary<string, ReplayLap>();
+        readonly Dictionary<LapRecord, CompareRun> _cmp = new Dictionary<LapRecord, CompareRun>();
+
+        /// <summary>距離ごとの速度のグラフの横軸の長さ [m] と、区間の始まりの距離 (0 = スタート / コントロールライン)。グラフを作れなければ 0 / 空</summary>
+        public readonly double GraphSpan;
+        public readonly double[] GraphGates = new double[0];
 
         public OverlayData(CourseDefinition def, SessionRecord sess, string[] sectorNames, List<GpsSample> gps, OverlayOptions opt,
                            double beforeSec, double afterSec, LapRecord only = null)
@@ -144,6 +154,53 @@ namespace Tk2Gui
             Engine = EngineStore.Load(sess.FilePath);
             if (Engine != null && !Engine.IsGeared && !(Engine.RpmPerKmh > 0)) Engine = null;
             ReloadHeart();
+            try
+            {
+                double s0g, span;
+                RunCompare.Span(def, out s0g, out span);
+                double[] gd = RunCompare.GateDist(def, s0g);
+                GraphSpan = span;
+                GraphGates = gd.Take(Math.Max(0, gd.Length - 1)).ToArray();   // 最後 (= span) はフィニッシュなので除く
+            }
+            catch (Exception) { GraphSpan = 0; }
+        }
+
+        /// <summary>グラフに線を描く周回: タイムがあり、スタート (コントロール) ラインから測った 1 周 / 1 本</summary>
+        static bool GraphLap(LapRecord l)
+        {
+            if (l == null || !l.LapTime.HasValue) return false;
+            if (l.IsGymRun) return true;
+            return l.Type == LapType.Normal && l.Valid && l.StartGate == 0;
+        }
+
+        CompareRun GraphRun(LapRecord l)
+        {
+            CompareRun r;
+            lock (_cmp)   // 書き出しは複数のスレッドから呼ぶ
+            {
+                if (!_cmp.TryGetValue(l, out r))
+                {
+                    try { r = RunCompare.Build(Def, _gps, l.StartT, l.LapTime.Value, l.Sector, "", Colors.White); }
+                    catch (Exception) { r = null; }
+                    _cmp[l] = r;
+                }
+            }
+            return r;
+        }
+
+        void FillGraph(OverlayState st, double t)
+        {
+            if (!(GraphSpan > 0)) return;
+            LapRecord best = BestLapBefore(t);
+            if (best != null) st.GraphBest = GraphRun(best);
+            LapRecord cur = null;
+            if (Def.IsGymkhana)
+            {
+                LapRecord f = GymFocus(t);
+                if (f != null && f.StartT <= t && t < f.EndT) cur = f;
+            }
+            else foreach (LapRecord l in _laps) if (l.StartT <= t && t < l.EndT) cur = l;
+            if (GraphLap(cur)) { st.GraphCur = GraphRun(cur); st.GraphEl = t - cur.StartT; }
         }
 
         /// <summary>心拍 (ログ名.heart.json) を読み直す</summary>
@@ -451,6 +508,7 @@ namespace Tk2Gui
             if (focus != null) { st.HeatNo = focus.LapNo; st.Driver = LapAnalyzer.DriverOf(Sess, focus); }
             FillLap(st, t);
             FillSector(st, t);
+            FillGraph(st, t);
             return st;
         }
 

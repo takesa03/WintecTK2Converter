@@ -43,7 +43,7 @@ namespace Tk2Gui
         }
 
         /// <summary>ラインのスタートからの距離 (区間の並び = LapRecord.Sector の並び。最後の区間の終わり = span)。</summary>
-        static double[] GateDist(CourseDefinition def, double startS)
+        internal static double[] GateDist(CourseDefinition def, double startS)
         {
             if (def.IsGymkhana) return def.Gates.OrderBy(g => g.S).Select(g => g.S - startS).ToArray();
             Gate ctrl = def.Gates.FirstOrDefault(g => g.Name == "ControlLine") ?? def.Gates[0];
