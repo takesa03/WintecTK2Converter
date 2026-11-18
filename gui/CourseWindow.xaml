@@ -147,7 +147,10 @@
                         <Button Content="Google Earth で重ねて確認" HorizontalAlignment="Left" Click="OpenEarth_Click" Margin="0,0,0,6"/>
                         <Button Content="このコースでラップ解析..." HorizontalAlignment="Left" Click="OpenLap_Click" Margin="0,0,0,6"/>
                         <StackPanel Orientation="Horizontal">
-                            <Button Content="コース定義を保存..." FontWeight="Bold" Click="Save_Click"/>
+                            <Button Content="コース定義を保存..." FontWeight="Bold" Click="Save_Click"
+                                    ToolTip="同じファイルに上書きすると、同じ条件 (同じ ID) のまま。ラインを直したときはこちら"/>
+                            <Button Content="別の条件として保存..." Margin="6,0,0,0" Click="SaveAsNew_Click"
+                                    ToolTip="新しい ID で保存します (公式のセクターと自分のセクターなど、同じ場所で別の切り方も見たいとき)。元の定義で解析した結果はそのまま残ります"/>
                         </StackPanel>
                         <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
                                    Text="保存すると、同じ名前の確認用 KML (Google Earth 用) も作ります。"/>

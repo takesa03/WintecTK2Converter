@@ -50,6 +50,7 @@ namespace Tk2Gui
         [JsonPropertyName("version")] public int Version { get; set; } = CurrentVersion;
         [JsonPropertyName("log")] public string Log { get; set; }                                  // ログのファイル名 (確認用)
         [JsonPropertyName("imported")] public List<string> Imported { get; set; }                  // 取り込んだ前の版の付属ファイル
+        [JsonPropertyName("courses")] public List<string> Courses { get; set; }                    // このログを解析したコース定義 (相対パス)
         [JsonPropertyName("params")] public LogParams Params { get; set; }                         // ラップ解析の条件 (最後に解析したとき)
         [JsonPropertyName("sessionEdits")] public SessionEditsData SessionEdits { get; set; }
         [JsonPropertyName("drivers")] public List<DriverStore.Entry> Drivers { get; set; }
@@ -179,12 +180,14 @@ namespace Tk2Gui
 
         static void ToRelative(LogData d, string dir)
         {
+            if (d.Courses != null) d.Courses = d.Courses.Select(c => RelPath.ToRel(dir, c)).ToList();
             if (d.Videos != null) foreach (VideoStore.Entry v in d.Videos) { v.Path = RelPath.ToRel(dir, v.Path); v.ClipOf = RelPath.ToRel(dir, v.ClipOf); }
             if (d.Heart != null) foreach (HeartStore.Entry h in d.Heart) h.Fit = RelPath.ToRel(dir, h.Fit);
         }
 
         static void ToAbsolute(LogData d, string dir)
         {
+            if (d.Courses != null) d.Courses = d.Courses.Select(c => RelPath.ToAbs(dir, c)).ToList();
             if (d.Videos != null) foreach (VideoStore.Entry v in d.Videos) { v.Path = RelPath.ToAbs(dir, v.Path); v.ClipOf = RelPath.ToAbs(dir, v.ClipOf); }
             if (d.Heart != null) foreach (HeartStore.Entry h in d.Heart) h.Fit = RelPath.ToAbs(dir, h.Fit);
         }

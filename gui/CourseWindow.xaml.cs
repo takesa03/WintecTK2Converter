@@ -976,13 +976,21 @@ namespace Tk2Gui
             return n.Trim().Length == 0 ? "course" : n.Trim();
         }
 
-        void Save_Click(object sender, RoutedEventArgs e)
+        void Save_Click(object sender, RoutedEventArgs e) { SaveCourse(false); }
+
+        /// <summary>
+        /// 別の条件として保存: 新しい ID で保存する (セクターの切り方だけ違う定義など)。元の定義で解析した結果はそのまま残り、
+        /// この定義の結果は別に作られる。ふつうの保存は、上書きする先のファイルの ID を引き継ぐ (ラインを直しても同じ条件)
+        /// </summary>
+        void SaveAsNew_Click(object sender, RoutedEventArgs e) { SaveCourse(true); }
+
+        void SaveCourse(bool asNew)
         {
             if (_def == null) return;
             SaveFileDialog dlg = new SaveFileDialog();
-            dlg.Title = "コース定義を保存";
+            dlg.Title = asNew ? "別の条件としてコース定義を保存 (新しい ID)" : "コース定義を保存";
             dlg.Filter = "コース定義 (*.course.json)|*.course.json";
-            dlg.FileName = SafeName() + ".course.json";
+            dlg.FileName = SafeName() + (asNew ? "_別条件" : "") + ".course.json";
             if (_res != null && _res.Samples != null && FileList.Items.Count > 0)
                 dlg.InitialDirectory = System.IO.Path.GetDirectoryName((string)FileList.Items[0]);
             Settings.InitialDir(dlg, "course");
@@ -991,7 +999,15 @@ namespace Tk2Gui
             try
             {
                 string path = dlg.FileName;
-                _def.Save(path);
+                string oldId = CourseDefinition.ReadId(path);
+                string prevId = _def.Id;
+                if (asNew) _def.Id = CourseDefinition.NewId();
+                else if (oldId != null) _def.Id = oldId;                  // 上書き: 同じ条件として ID を引き継ぐ
+                else if (string.IsNullOrEmpty(_def.Id)) _def.Id = CourseDefinition.NewId();
+                try { _def.Save(path); }
+                catch (Exception) { _def.Id = prevId; throw; }
+                if (asNew) Log("新しい条件として保存しました (ID " + _def.Id + ")。前の定義で解析した結果はそのまま残ります。");
+                else if (oldId != null) Log("同じ条件として上書きしました (ID " + _def.Id + ")。ラインが変わっていれば、ラップ解析で解析し直されます。");
                 string kml = path.EndsWith(".course.json", StringComparison.OrdinalIgnoreCase)
                     ? path.Substring(0, path.Length - ".course.json".Length) + ".kml" : System.IO.Path.ChangeExtension(path, ".kml");
                 File.WriteAllText(kml, BuildKml(), new UTF8Encoding(false));

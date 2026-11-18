@@ -147,6 +147,9 @@ namespace Tk2Gui
     {
         [JsonPropertyName("format")] public string Format { get; set; } = "WintecTK2Course";
         [JsonPropertyName("version")] public int Version { get; set; } = 1;
+        // コース定義の ID (GUID)。ファイル名を変えても同じ定義と分かるように。上書き保存では変えず、「別の条件として保存」で新しくする
+        [JsonPropertyName("id"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string Id { get; set; }
         [JsonPropertyName("name")] public string Name { get; set; } = "Course";
         // null または "circuit" = サーキット (中心線は閉じた輪)。"gymkhana" = ジムカーナ (中心線は始点と終点のある線)
         [JsonPropertyName("mode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -160,6 +163,43 @@ namespace Tk2Gui
         [JsonPropertyName("gates")] public List<Gate> Gates { get; set; } = new List<Gate>();
         [JsonPropertyName("centerline")] public List<LatLon> Centerline { get; set; } = new List<LatLon>();
 
+        /// <summary>この版が知らない項目も、書き戻すときに消さない</summary>
+        [JsonExtensionData] public Dictionary<string, JsonElement> Extra { get; set; }
+
+        /// <summary>
+        /// 指紋: 解析の結果を変える部分 (種類・ラインの名前・両端・向き) の hash。中心線は表示用なので含めない。
+        /// ラインを動かすと変わるので、保存してある解析の結果 (laps.json) が古いと分かる
+        /// </summary>
+        public string Fingerprint()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append(Mode ?? "circuit");
+            foreach (Gate g in Gates)
+                sb.Append('|').Append(g.Name).Append(';')
+                  .Append(g.A.Lat.ToString("F7", CultureInfo.InvariantCulture)).Append(',').Append(g.A.Lon.ToString("F7", CultureInfo.InvariantCulture)).Append(';')
+                  .Append(g.B.Lat.ToString("F7", CultureInfo.InvariantCulture)).Append(',').Append(g.B.Lon.ToString("F7", CultureInfo.InvariantCulture)).Append(';')
+                  .Append(g.HeadingDeg.HasValue ? g.HeadingDeg.Value.ToString("F3", CultureInfo.InvariantCulture) : "");
+            using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+                return string.Concat(sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString())).Take(8).Select(b => b.ToString("x2")));
+        }
+
+        public static string NewId() { return Guid.NewGuid().ToString("D"); }
+
+        /// <summary>保存してあるファイルの ID を読む (無い・読めなければ null)</summary>
+        public static string ReadId(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return null;
+                using (JsonDocument doc = JsonDocument.Parse(File.ReadAllText(path, Encoding.UTF8)))
+                {
+                    JsonElement e;
+                    return doc.RootElement.TryGetProperty("id", out e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+                }
+            }
+            catch (Exception) { return null; }
+        }
+
         static readonly JsonSerializerOptions JsonOpt = new JsonSerializerOptions
         {
             WriteIndented = true,
@@ -170,6 +210,7 @@ namespace Tk2Gui
         /// <summary>保存する。sources (作るのに使ったログ) はコース定義のフォルダからの相対パスにする (フォルダごと移せるように)</summary>
         public void Save(string path)
         {
+            if (string.IsNullOrEmpty(Id)) Id = NewId();
             string dir = Path.GetDirectoryName(Path.GetFullPath(path));
             List<string> abs = Sources;
             if (Sources != null) Sources = Sources.Select(s => RelPath.ToRel(dir, s)).ToList();
@@ -185,6 +226,11 @@ namespace Tk2Gui
                 throw new InvalidDataException("コース定義ファイルではありません: " + Path.GetFileName(path));
             string dir = Path.GetDirectoryName(Path.GetFullPath(path));
             if (d.Sources != null) d.Sources = d.Sources.Select(s => RelPath.ToAbs(dir, s)).ToList();
+            // 前の版のコース定義には ID が無い。ここで振って書き戻す (書けなくても、この回は振った ID で使う)
+            if (string.IsNullOrEmpty(d.Id))
+            {
+                try { d.Save(path); } catch (Exception) { if (string.IsNullOrEmpty(d.Id)) d.Id = NewId(); }
+            }
             return d;
         }
 

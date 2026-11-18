@@ -333,6 +333,7 @@ namespace Tk2Gui
             }
             List<string> paths = FileList.Items.Cast<string>().ToList();
             CourseDefinition def = _def;
+            string coursePath = _coursePath;
             int restored = 0, runsRestored = 0;
             List<string> notes = new List<string>();
             LogParams saveParams = def.IsGymkhana ? null : new LogParams { PitStopSec = prm.PitStopSec, MinCrossSpeedKmh = prm.MinCrossSpeedKmh, SlowLapRatio = prm.SlowLapRatio };
@@ -366,6 +367,7 @@ namespace Tk2Gui
                         runsRestored = RunStore.Apply(r);   // ジムカーナ: 走行ごとのメモ・ドライバー・印を復元し、印を反映してベストを計算し直す
                         LapAnalyzer.RecomputeGymkhana(r);
                     }
+                    LapsStore.Save(def, coursePath, r, paths, notes);   // 結果を ログ名.laps.json に (コース定義の id ごと)
                     foreach (string p in paths) notes.AddRange(LogFile.TakeNotes(p));
                     return r;
                 });
@@ -388,6 +390,23 @@ namespace Tk2Gui
                 InfoText.Text = "失敗: " + ex.Message;
             }
             finally { _busy = false; UpdateButtons(); }
+        }
+
+        /// <summary>ドライバー名・走行のメモなどを変えたときに、laps.json も書き直すための材料 (画面側で取る)</summary>
+        sealed class LapsJob { public CourseDefinition Def; public string CoursePath; public LapAnalysis Res; public List<string> Paths; }
+
+        LapsJob MakeLapsJob()
+        {
+            if (_res == null || _def == null || _readOnly) return null;
+            return new LapsJob { Def = _def, CoursePath = _coursePath, Res = _res, Paths = FileList.Items.Cast<string>().ToList() };
+        }
+
+        static void SaveLapsNow(LapsJob j, List<string> errors)
+        {
+            if (j == null) return;
+            List<string> notes = new List<string>();
+            LapsStore.Save(j.Def, j.CoursePath, j.Res, j.Paths, notes);
+            errors.AddRange(notes.Where(n => n.StartsWith("解析の結果を保存できません", StringComparison.Ordinal)));
         }
 
         static double ParseD(string s, string name, double min, double max)
@@ -493,10 +512,12 @@ namespace Tk2Gui
             if (sel != null && ReferenceEquals(sel.Rec, keep)) ShowRunEdit(sel);
 
             List<RunStore.Snapshot> snaps = RunStore.MakeSnapshots(_res);
+            LapsJob lapsJob = MakeLapsJob();
             _saveChain = _saveChain.ContinueWith(_ =>
             {
                 List<string> errors = new List<string>();
                 List<string> saved = RunStore.Write(snaps, errors);
+                SaveLapsNow(lapsJob, errors);
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (saved.Count > 0) Log("走行のメモ・ドライバー・印を保存: " + string.Join(", ", saved.Select(System.IO.Path.GetFileName)));
@@ -1004,12 +1025,14 @@ namespace Tk2Gui
                 if (_res == null) return;
                 // 保存内容は画面側で作り (速い)、ファイルへの書き込みは裏で順番に行う (保存先が遅くても画面が固まらないように)
                 List<DriverStore.Snapshot> snaps = DriverStore.MakeSnapshots(_res);
+                LapsJob lapsJob = MakeLapsJob();
                 _saveChain = _saveChain.ContinueWith(_ =>
                 {
                     System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
                     List<string> errors = new List<string>();
                     List<string> saved = DriverStore.Write(snaps, errors);
                     long ms = sw.ElapsedMilliseconds;
+                    SaveLapsNow(lapsJob, errors);
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
                         foreach (string er in errors) Log("ドライバー名を保存できません: " + er);
