@@ -704,6 +704,12 @@ namespace Tk2Gui
             }
         }
 
+        /// <summary>区間の写し (データをまとめるとき、動画のパスだけ直すため)</summary>
+        public static Segment CloneSegment(Segment s)
+        {
+            return JsonSerializer.Deserialize<Segment>(JsonSerializer.Serialize(s, Opt), Opt);
+        }
+
         /// <summary>車の種類と設定だけを写す</summary>
         public static void CopyCar(FileData src, FileData dst)
         {

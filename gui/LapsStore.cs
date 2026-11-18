@@ -136,11 +136,16 @@ namespace Tk2Gui
         /// </summary>
         public static void Save(CourseDefinition def, string coursePath, LapAnalysis res, IEnumerable<string> logs, List<string> notes)
         {
+            foreach (string log in logs) SaveTo(def, coursePath, res, log, log, notes);
+        }
+
+        /// <summary>srcLog の解析結果を、destLog の laps.json に保存する (データをまとめるとき、まとめ先へ)</summary>
+        public static void SaveTo(CourseDefinition def, string coursePath, LapAnalysis res, string srcLog, string log, List<string> notes)
+        {
             if (def == null || res == null || string.IsNullOrEmpty(def.Id)) return;
             string hash = def.Fingerprint();
-            foreach (string log in logs)
             {
-                string full = Path.GetFullPath(log);
+                string full = Path.GetFullPath(srcLog);
                 try
                 {
                     lock (Lock)

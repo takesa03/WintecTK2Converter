@@ -1,0 +1,43 @@
+﻿<Window x:Class="Tk2Gui.PackWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="データをまとめる" Height="620" Width="780" MinHeight="420" MinWidth="560"
+        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13" Icon="AppIcon.ico">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,8"
+                   Text="コースフォルダ (走る場所とレイアウト) の下に、ログごとのフォルダ (日付_ログ名) を作り、ログ・付属情報・心拍の FIT・動画を置きます。中のパスは相対なので、まとめた後はフォルダごと移しても使えます。元のファイルは消しません (動画を「移動」にしたときだけ、全部うまくいった後で元の動画を消します)。"/>
+        <DockPanel Grid.Row="1" Margin="0,0,0,6">
+            <TextBlock Text="コースフォルダ" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <Button DockPanel.Dock="Right" Content="選ぶ..." Padding="10,3" Margin="6,0,0,0" Click="Browse_Click"/>
+            <TextBox Name="DirBox" LostFocus="Dir_Changed" KeyDown="Dir_KeyDown"/>
+        </DockPanel>
+        <WrapPanel Grid.Row="2" Margin="0,0,0,6">
+            <TextBlock Text="動画" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <RadioButton Name="CopyRadio" Content="コピー" IsChecked="True" Margin="0,0,12,0" Checked="Mode_Changed"/>
+            <RadioButton Name="MoveRadio" Content="移動" Margin="0,0,12,0" Checked="Mode_Changed"
+                         ToolTip="まとめ先へ移します。別のドライブなら、コピーが全部済んでから元の動画を消します"/>
+            <RadioButton Name="RefRadio" Content="元の場所を参照" Margin="0,0,12,0" Checked="Mode_Changed"
+                         ToolTip="動画は動かさず、今の場所を指したままにします (フォルダごと移すと見つからなくなることがあります)"/>
+        </WrapPanel>
+        <TextBox Grid.Row="3" Name="PlanBox" IsReadOnly="True" FontFamily="Consolas, Yu Gothic UI" FontSize="12"
+                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+        <ProgressBar Grid.Row="4" Name="Progress" Height="8" Margin="0,8,0,0" Maximum="1"/>
+        <DockPanel Grid.Row="5" Margin="0,8,0,0">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Name="OpenButton" Content="まとめた先をラップ解析で開く" Padding="10,4" Margin="0,0,6,0" IsEnabled="False" Click="Open_Click"/>
+                <Button Name="RunButton" Content="まとめる" FontWeight="Bold" Padding="14,4" Margin="0,0,6,0" Click="Run_Click"/>
+                <Button Name="CancelButton" Content="中止" Padding="10,4" Margin="0,0,6,0" IsEnabled="False" Click="Cancel_Click"/>
+                <Button Name="CloseButton" Content="閉じる" Padding="10,4" Click="Close_Click"/>
+            </StackPanel>
+            <TextBlock Name="StatusText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}"/>
+        </DockPanel>
+    </Grid>
+</Window>

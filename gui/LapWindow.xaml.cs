@@ -201,6 +201,7 @@ namespace Tk2Gui
         {
             AnalyzeButton.IsEnabled = !_busy && _def != null && FileList.Items.Count > 0;
             CsvButton.IsEnabled = !_busy && _res != null && _res.Sessions.Count > 0;
+            PackButton.IsEnabled = CsvButton.IsEnabled && !_readOnly && _def != null;
         }
 
         void OpenCourse_Click(object sender, RoutedEventArgs e)
@@ -390,6 +391,20 @@ namespace Tk2Gui
                 InfoText.Text = "失敗: " + ex.Message;
             }
             finally { _busy = false; UpdateButtons(); }
+        }
+
+        void Pack_Click(object sender, RoutedEventArgs e)
+        {
+            if (_res == null || _def == null || _readOnly || _busy) return;
+            if (string.IsNullOrEmpty(_def.Id) || string.IsNullOrEmpty(_coursePath))
+            {
+                MessageBox.Show(this, "コース定義をファイルから開いてから、もう一度解析してください (まとめるには、保存したコース定義が要ります)。", "コース定義", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            try { _saveChain.Wait(10000); } catch (Exception) { }   // ドライバー名などの書き込みを済ませてから
+            PackWindow w = new PackWindow(_def, _coursePath, _res, FileList.Items.Cast<string>().ToList());
+            w.Owner = this;
+            w.ShowDialog();
         }
 
         /// <summary>ドライバー名・走行のメモなどを変えたときに、laps.json も書き直すための材料 (画面側で取る)</summary>

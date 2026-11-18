@@ -95,6 +95,18 @@ namespace Tk2Gui
             }
         }
 
+        /// <summary>写しを作る (パスはそのまま)</summary>
+        public static LogData Clone(LogData d)
+        {
+            return JsonSerializer.Deserialize<LogData>(JsonSerializer.Serialize(d, Opt), Opt);
+        }
+
+        /// <summary>丸ごと書く (データをまとめるときに、まとめ先のログへ)。パスは絶対で渡す。区間の列 (rpm.json) は書かない</summary>
+        public static void Save(string log, LogData d)
+        {
+            lock (Lock) Write(log, d);
+        }
+
         /// <summary>読んで、変えて、書く。ファイルが壊れていれば例外 (上書きして消さない)。書けなければ例外</summary>
         public static void Update(string log, Action<LogData> change)
         {

@@ -86,6 +86,8 @@
                         </StackPanel>
                         <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,6,0,0"
                                    Text="セッション番号・ドライバー名・各区間のタイム・最高速度などを、全セッション続けて保存します (Excel で開けます)。"/>
+                        <Button Name="PackButton" Content="データをまとめる..." Click="Pack_Click" IsEnabled="False" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                ToolTip="コースフォルダの下に、ログごとのフォルダを作って、ログ・付属情報・心拍の FIT・動画をまとめます。まとめた後はフォルダごと移しても使えます"/>
                     </StackPanel>
                 </GroupBox>
 
