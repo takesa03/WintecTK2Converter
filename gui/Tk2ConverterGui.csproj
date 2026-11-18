@@ -24,6 +24,8 @@
     <None Include="..\tk2nmea.ini" Link="tk2nmea.ini" CopyToOutputDirectory="PreserveNewest" />
     <!-- 動画素材の既定のレイアウト -->
     <None Include="overlay_default.ini" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 初めての人向けの機能概要と操作マニュアル (発行フォルダに入れる) -->
+    <None Include="..\docs\MANUAL.md" Link="マニュアル.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- バージョン: Major.Minor.Build はここを直接編集して手動で管理する。リビジョン (4 桁目) はビルドのたびに 1 つ増やす (revision.txt)。
