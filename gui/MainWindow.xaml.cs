@@ -42,24 +42,11 @@ namespace Tk2Gui
             UpdateState();
 
             // exe へのドラッグ＆ドロップや「送る」、コマンドラインで渡されたファイル・フォルダを最初から並べる
-            // 先頭が -course なら、残りのファイルでコース定義の作成画面を開く
+            // (-course / -lap / -compare は App.OnStartup で解析ツールの画面を直接開く)
             string[] raw = Environment.GetCommandLineArgs().Skip(1).ToArray();
-            if (raw.Length > 0 && string.Equals(raw[0], "-course", StringComparison.OrdinalIgnoreCase))
-            {
-                string[] courseFiles = raw.Skip(1).ToArray();
-                Loaded += (s, e) => { CourseWindow w = new CourseWindow(courseFiles); w.Owner = this; w.Show(); };
-            }
-            else if (raw.Length > 0 && string.Equals(raw[0], "-lap", StringComparison.OrdinalIgnoreCase))
-            {
-                // -lap コース定義.course.json ログ... : ラップ解析の画面を開く
-                string[] lapFiles = raw.Skip(1).ToArray();
-                Loaded += (s, e) => { LapWindow w = new LapWindow(null, null, lapFiles); w.Owner = this; w.Show(); };
-            }
-            else
-            {
-                string[] args = raw.Where(a => !a.StartsWith("-")).ToArray();
-                if (args.Length > 0) Loaded += (s, e) => AddPaths(args);
-            }
+            if (raw.Length > 0 && raw[0].StartsWith("-")) return;
+            string[] args = raw.Where(a => !a.StartsWith("-")).ToArray();
+            if (args.Length > 0) Loaded += (s, e) => AddPaths(args);
         }
 
         // ================= 初期値 (tk2nmea.ini) =================
@@ -166,22 +153,6 @@ namespace Tk2Gui
         void Clear_Click(object sender, RoutedEventArgs e)
         {
             _items.Clear();
-        }
-
-        // ラップ・セクタータイムの解析画面を開く (一覧にある .tk2 を走行ログの初期値にする)
-        void Lap_Click(object sender, RoutedEventArgs e)
-        {
-            LapWindow w = new LapWindow(null, null, _items.Where(i => i.Track != null).Select(i => i.Path));
-            w.Owner = this;
-            w.Show();
-        }
-
-        // 一覧にある .tk2 を走行ログの初期値にして、コース定義の作成画面を開く
-        void Course_Click(object sender, RoutedEventArgs e)
-        {
-            CourseWindow w = new CourseWindow(_items.Where(i => i.Track != null).Select(i => i.Path));
-            w.Owner = this;
-            w.Show();
         }
 
         // ファイルまたはフォルダ (直下の *.tk2) を一覧に追加し、バックグラウンドで読み込む

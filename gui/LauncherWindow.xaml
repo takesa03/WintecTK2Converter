@@ -1,0 +1,60 @@
+﻿<Window x:Class="Tk2Gui.LauncherWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Wintec TK2 Converter" SizeToContent="WidthAndHeight" ResizeMode="CanMinimize"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13" Icon="AppIcon.ico">
+    <Window.Resources>
+        <Style x:Key="BigButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Width" Value="360"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="Padding" Value="16,12"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        </Style>
+    </Window.Resources>
+
+    <StackPanel Margin="20,16,20,10">
+        <!-- 最初: 変換ツール / 解析ツール -->
+        <StackPanel Name="TopPanel">
+            <Button Name="ConvertToolButton" Style="{StaticResource BigButton}" Click="ConvertTool_Click">
+                <StackPanel Width="320">
+                    <TextBlock Text="変換ツール" FontSize="17" FontWeight="Bold"/>
+                    <TextBlock Text=".tk2 を NMEA / Google Earth (KMZ) に変換" Foreground="{StaticResource TextSecondaryBrush}"/>
+                </StackPanel>
+            </Button>
+            <Button Name="AnalysisToolButton" Style="{StaticResource BigButton}" Click="AnalysisTool_Click">
+                <StackPanel Width="320">
+                    <TextBlock Text="解析ツール" FontSize="17" FontWeight="Bold"/>
+                    <TextBlock Text="コース定義・ラップ解析・ライブラリから比較" Foreground="{StaticResource TextSecondaryBrush}"/>
+                </StackPanel>
+            </Button>
+        </StackPanel>
+
+        <!-- 解析ツール -->
+        <StackPanel Name="AnalysisPanel" Visibility="Collapsed">
+            <TextBlock Text="解析ツール" FontSize="17" FontWeight="Bold" Margin="0,0,0,10"/>
+            <Button Name="CourseButton" Style="{StaticResource BigButton}" Click="Course_Click">
+                <StackPanel Width="320">
+                    <TextBlock Text="コース定義を作成..." FontSize="15" FontWeight="Bold"/>
+                    <TextBlock Text="周回ログからコースの中心線・ライン・セクターを作る" Foreground="{StaticResource TextSecondaryBrush}"/>
+                </StackPanel>
+            </Button>
+            <Button Name="LapButton" Style="{StaticResource BigButton}" Click="Lap_Click">
+                <StackPanel Width="320">
+                    <TextBlock Text="ラップ解析..." FontSize="15" FontWeight="Bold"/>
+                    <TextBlock Text="ラップ・セクタータイム、動画の時刻合わせ、データをまとめる" Foreground="{StaticResource TextSecondaryBrush}"/>
+                </StackPanel>
+            </Button>
+            <Button Name="LibraryButton" Style="{StaticResource BigButton}" Click="Library_Click"
+                    ToolTip="「データをまとめる...」でまとめたフォルダから、別の日・別のログの周回どうしを動画や地図で比べます">
+                <StackPanel Width="320">
+                    <TextBlock Text="ライブラリから比較..." FontSize="15" FontWeight="Bold"/>
+                    <TextBlock Text="まとめたデータから 2 つの周回を動画・地図で比べる" Foreground="{StaticResource TextSecondaryBrush}"/>
+                </StackPanel>
+            </Button>
+            <Button Name="BackButton" Content="◀ 戻る" Click="Back_Click" HorizontalAlignment="Left" Padding="12,4"/>
+        </StackPanel>
+
+        <TextBlock Name="VersionLabel" HorizontalAlignment="Right" Margin="0,6,0,0" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11"/>
+    </StackPanel>
+</Window>

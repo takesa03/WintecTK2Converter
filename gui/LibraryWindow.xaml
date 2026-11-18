@@ -1,0 +1,99 @@
+﻿<Window x:Class="Tk2Gui.LibraryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="clr-namespace:Tk2Gui"
+        Title="ライブラリから比較" Height="760" Width="1240" MinHeight="460" MinWidth="820"
+        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13" Icon="AppIcon.ico">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="340"/>
+        </Grid.ColumnDefinitions>
+        <DockPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,6">
+            <TextBlock Text="ライブラリ" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <Button DockPanel.Dock="Right" Content="読み直す" Padding="10,3" Margin="6,0,0,0" Click="Reload_Click"
+                    ToolTip="フォルダの中を探し直します (解析の結果が古いログは解析し直します)"/>
+            <Button DockPanel.Dock="Right" Content="開く..." Padding="10,3" Margin="6,0,0,0" Click="Browse_Click"/>
+            <TextBox Name="DirBox" KeyDown="Dir_KeyDown"
+                     ToolTip="ライブラリの最上位、またはコースフォルダ (「データをまとめる...」でまとめたフォルダ)"/>
+        </DockPanel>
+        <WrapPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,0,0,6">
+            <TextBlock Text="条件 (コース定義)" VerticalAlignment="Center" Margin="0,0,6,4"/>
+            <ComboBox Name="CourseCombo" Width="320" Margin="0,0,14,4" SelectionChanged="Course_Changed"/>
+            <TextBlock Text="ドライバー" VerticalAlignment="Center" Margin="0,0,6,4"/>
+            <TextBox Name="DriverBox" Width="110" Margin="0,0,10,4" TextChanged="Filter_Changed" ToolTip="名前の一部 (大文字・小文字は区別しません)"/>
+            <TextBlock Text="日付" VerticalAlignment="Center" Margin="0,0,6,4"/>
+            <TextBox Name="DateBox" Width="90" Margin="0,0,10,4" TextChanged="Filter_Changed" ToolTip="例: 2026-11 / 11-07 (日付の一部)"/>
+            <CheckBox Name="VideoOnlyCheck" Content="動画のある周回だけ" VerticalAlignment="Center" Margin="0,0,14,4" Checked="Filter_Changed" Unchecked="Filter_Changed"/>
+            <TextBlock Text="並べ方" VerticalAlignment="Center" Margin="0,0,6,4"/>
+            <ComboBox Name="SortCombo" Width="100" Margin="0,0,0,4" SelectionChanged="Filter_Changed">
+                <ComboBoxItem Content="ベスト順" IsSelected="True"/>
+                <ComboBoxItem Content="時刻順"/>
+            </ComboBox>
+        </WrapPanel>
+        <l:QuietDataGrid Grid.Row="2" x:Name="LapGrid" AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True"
+                         SelectionMode="Single" SelectionUnit="FullRow" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                         LoadingRow="LapGrid_LoadingRow" MouseDoubleClick="LapGrid_DoubleClick">
+            <l:QuietDataGrid.Columns>
+                <DataGridTextColumn Header="" Binding="{Binding Mark}" Width="24"/>
+                <DataGridTextColumn Header="日付" Binding="{Binding Date}" Width="110"/>
+                <DataGridTextColumn Header="ログ" Binding="{Binding Folder}" Width="170"/>
+                <DataGridTextColumn Header="S" Binding="{Binding Session}" Width="32"/>
+                <DataGridTextColumn Header="周回" Binding="{Binding LapNo}" Width="44"/>
+                <DataGridTextColumn Header="ドライバー" Binding="{Binding Driver}" Width="100"/>
+                <DataGridTextColumn Header="タイム" Binding="{Binding Time}" Width="74"/>
+                <DataGridTextColumn Header="区間" Binding="{Binding Sectors}" Width="200"/>
+                <DataGridTextColumn Header="最高速" Binding="{Binding Max}" Width="66"/>
+                <DataGridTextColumn Header="動画" Binding="{Binding Videos}" Width="44"/>
+                <DataGridTextColumn Header="心拍" Binding="{Binding Heart}" Width="40"/>
+                <DataGridTextColumn Header="備考" Binding="{Binding Note}" Width="*"/>
+            </l:QuietDataGrid.Columns>
+        </l:QuietDataGrid>
+        <ScrollViewer Grid.Row="2" Grid.Column="1" Margin="10,0,0,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,8"
+                           Text="一覧の周回をダブルクリックすると、空いている方 (A、次に B) に入ります。別の日・別のログの周回どうしでも比べられます。"/>
+                <GroupBox Header="A" Margin="0,0,0,8">
+                    <StackPanel Margin="4">
+                        <TextBlock Name="AText" Text="(空き)" TextWrapping="Wrap" FontFamily="Consolas, Yu Gothic UI" Margin="0,0,0,4"/>
+                        <DockPanel>
+                            <TextBlock Text="動画" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <Button DockPanel.Dock="Right" Content="外す" Tag="0" Padding="8,2" Margin="6,0,0,0" Click="Clear_Click"/>
+                            <ComboBox Name="AVideo"/>
+                        </DockPanel>
+                    </StackPanel>
+                </GroupBox>
+                <GroupBox Header="B" Margin="0,0,0,8">
+                    <StackPanel Margin="4">
+                        <TextBlock Name="BText" Text="(空き)" TextWrapping="Wrap" FontFamily="Consolas, Yu Gothic UI" Margin="0,0,0,4"/>
+                        <DockPanel>
+                            <TextBlock Text="動画" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <Button DockPanel.Dock="Right" Content="外す" Tag="1" Padding="8,2" Margin="6,0,0,0" Click="Clear_Click"/>
+                            <ComboBox Name="BVideo"/>
+                        </DockPanel>
+                    </StackPanel>
+                </GroupBox>
+                <WrapPanel>
+                    <Button Name="PutAButton" Content="選んだ行を A に" Tag="0" Padding="8,3" Margin="0,0,6,6" Click="Put_Click"/>
+                    <Button Name="PutBButton" Content="選んだ行を B に" Tag="1" Padding="8,3" Margin="0,0,6,6" Click="Put_Click"/>
+                    <Button Content="A と B を入れ替え" Padding="8,3" Margin="0,0,6,6" Click="Swap_Click"/>
+                </WrapPanel>
+                <WrapPanel Margin="0,6,0,0">
+                    <Button Name="VideoButton" Content="▶ 動画で比較" FontWeight="Bold" Padding="14,5" Margin="0,0,6,6" Click="VideoCompare_Click" IsEnabled="False"/>
+                    <Button Name="MapButton" Content="地図で比較" Padding="10,5" Margin="0,0,6,6" Click="MapCompare_Click" IsEnabled="False"
+                            ToolTip="動画が無くても、航空写真の上で 2 つの周回を並べて再生します"/>
+                </WrapPanel>
+            </StackPanel>
+        </ScrollViewer>
+        <DockPanel Grid.Row="3" Grid.ColumnSpan="2" Margin="0,8,0,0">
+            <ProgressBar Name="Progress" DockPanel.Dock="Top" Height="6" Maximum="1" Margin="0,0,0,4"/>
+            <TextBox Name="LogBox" IsReadOnly="True" Height="70" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" FontSize="12"/>
+        </DockPanel>
+    </Grid>
+</Window>

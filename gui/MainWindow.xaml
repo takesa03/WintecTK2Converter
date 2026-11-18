@@ -33,8 +33,6 @@
             <Button Name="AddFolderButton" Content="フォルダを追加..." Click="AddFolder_Click"/>
             <Button Name="RemoveButton" Content="選択を削除" Click="Remove_Click"/>
             <Button Name="ClearButton" Content="すべてクリア" Click="Clear_Click"/>
-            <Button Name="CourseButton" Content="コース定義を作成..." Click="Course_Click" Margin="14,0,6,0"/>
-            <Button Name="LapButton" Content="ラップ解析..." Click="Lap_Click"/>
             <TextBlock VerticalAlignment="Center" Margin="10,0,0,0" Foreground="{StaticResource TextSecondaryBrush}"
                        Text="※ .tk2 ファイルやフォルダをこの画面へドラッグ＆ドロップでも追加できます"/>
         </StackPanel>

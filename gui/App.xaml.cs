@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+﻿using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -18,6 +19,30 @@ namespace Tk2Gui
                 return v == null ? "" : "v" + v;
             }
         }
+
+        /// <summary>
+        /// 最初の画面を開く (App.xaml に StartupUri を書かない)。
+        /// 引数なし = ランチャー (変換ツール / 解析ツール)、ファイル・フォルダ = 変換ツール (exe へのドラッグ＆ドロップ)、
+        /// -course ファイル... = コース定義、-lap コース定義 ログ... = ラップ解析、-compare [フォルダ] = ライブラリから比較
+        /// </summary>
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            base.OnStartup(e);
+            string first = e.Args.Length > 0 ? e.Args[0] : null;
+            string[] rest = e.Args.Skip(1).ToArray();
+            if (Is(first, "-compare"))
+                new LibraryWindow(rest.Length > 0 ? rest[0] : null).Show();
+            else if (Is(first, "-course"))
+                new CourseWindow(rest).Show();
+            else if (Is(first, "-lap"))
+                new LapWindow(null, null, rest).Show();
+            else if (e.Args.Any(a => !a.StartsWith("-")))
+                new MainWindow().Show();
+            else
+                new LauncherWindow().Show();
+        }
+
+        static bool Is(string a, string opt) { return a != null && string.Equals(a, opt, System.StringComparison.OrdinalIgnoreCase); }
 
         static App()
         {

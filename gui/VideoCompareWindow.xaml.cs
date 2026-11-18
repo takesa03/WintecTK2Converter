@@ -118,18 +118,26 @@ namespace Tk2Gui
             Speed_Changed(null, null);
             Audio_Changed(null, null);
 
+            // 比較の画面は 1 つだけ。前のを閉じて (呼び出し元の位置も戻る) から開く
+            if (_current != null) { try { _current.Close(); } catch (Exception) { } }
+            _current = this;
+
             PreviewKeyDown += OnKey;
             Loaded += OnLoaded;
             Closed += (s, e) =>
             {
+                if (_current == this) _current = null;
                 CompositionTarget.Rendering -= OnRender;
                 _cancel.Cancel();
                 if (_audio != null) _audio.Dispose();
                 foreach (Lane l in _lanes) { l.Pane.StopOverlay(); if (l.Reader != null) l.Reader.Dispose(); }
                 if (_map != null) { try { _map.Close(); } catch (Exception) { } }
+                RestoreOrigin();
             };
             Status(string.Format(Inv, "両方とも、{0}の開始 (ラインの通過) を 0 秒にして同時に再生します。「揃える位置」でセクターの開始に揃えることもできます。前後に {1} 秒の余白。スペース = 再生・一時停止、← → = コマ送り、1 / 2 / 3 / 4 / 0 = 音声 A / B / 両方 / 左右 / なし。", kind, Before));
         }
+
+        static VideoCompareWindow _current;
 
         void Status(string s) { StatusText.Text = s; }
 
@@ -158,7 +166,7 @@ namespace Tk2Gui
             }
             CompositionTarget.Rendering += OnRender;
             SeekAll(0);
-            OpenMap();
+            Arrange_Click(null, null);   // 開いたときに「並べて配置」 (地図も開く)
 
             await LoadAudioAsync();
         }
@@ -485,6 +493,33 @@ namespace Tk2Gui
             return new Rect(a, b);
         }
 
+        // 呼び出し元の並べる前の位置・大きさ (閉じたら戻す)
+        bool _originSaved;
+        Rect _originBounds;
+        WindowState _originState;
+
+        void SaveOrigin()
+        {
+            if (_originSaved || Origin == null) return;
+            _originState = Origin.WindowState;
+            _originBounds = Origin.WindowState == WindowState.Normal
+                ? new Rect(Origin.Left, Origin.Top, Origin.Width, Origin.Height)
+                : Origin.RestoreBounds;
+            _originSaved = !_originBounds.IsEmpty;
+        }
+
+        void RestoreOrigin()
+        {
+            if (!_originSaved || Origin == null || !Origin.IsLoaded) return;
+            try
+            {
+                Place(Origin, _originBounds.Left, _originBounds.Top, _originBounds.Width, _originBounds.Height);
+                if (_originState == WindowState.Maximized) Origin.WindowState = WindowState.Maximized;
+                Origin.Activate();
+            }
+            catch (Exception) { }
+        }
+
         static void Place(Window w, double x, double y, double width, double height)
         {
             if (w == null) return;
@@ -497,6 +532,7 @@ namespace Tk2Gui
         /// <summary>動画を上半分に大きく、左下にラップ・セクタータイム、右下に地図を並べる</summary>
         void Arrange_Click(object sender, RoutedEventArgs e)
         {
+            SaveOrigin();
             OpenMap();
             Rect r = WorkArea();
             double topH = Math.Round(r.Height * 0.63);
