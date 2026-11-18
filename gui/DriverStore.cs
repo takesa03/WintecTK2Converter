@@ -12,8 +12,7 @@ namespace Tk2Gui
     // =====================================================================
     //  ドライバー名の保存・復元
     //  セッションの時間範囲 (ログの通算秒) とドライバー名を、ログファイルごとに保存する。
-    //  保存先は、ログファイルのそばの「ログ名.drivers.json」。書き込めなければ
-    //  %LOCALAPPDATA%\WintecTK2Converter\drivers\ に退避する。
+    //  保存先は、ログの付属情報 (ログ名.log.json の drivers。LogFile)。
     //  復元は時間範囲の重なりで対応づけるので、停止の判定秒数を変えてセッションの分かれ方が
     //  変わっても、名前を引き継げる。
     // =====================================================================
@@ -26,49 +25,9 @@ namespace Tk2Gui
             [JsonPropertyName("driver")] public string Driver { get; set; }
         }
 
-        sealed class FileData
-        {
-            [JsonPropertyName("format")] public string Format { get; set; } = "WintecTK2Drivers";
-            [JsonPropertyName("version")] public int Version { get; set; } = 1;
-            [JsonPropertyName("log")] public string Log { get; set; }
-            [JsonPropertyName("entries")] public List<Entry> Entries { get; set; } = new List<Entry>();
-        }
-
-        static readonly JsonSerializerOptions Opt = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-        };
-
-        static string SidecarPath(string log)
-        {
-            return log + ".drivers.json";
-        }
-
-        static string FallbackPath(string log)
-        {
-            string key = BitConverter.ToString(SHA1.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(log).ToLowerInvariant()))).Replace("-", "").Substring(0, 16);
-            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WintecTK2Converter", "drivers");
-            return Path.Combine(dir, Path.GetFileName(log) + "_" + key + ".json");
-        }
-
-        static List<Entry> ReadFile(string path)
-        {
-            try
-            {
-                if (!File.Exists(path)) return null;
-                FileData d = JsonSerializer.Deserialize<FileData>(File.ReadAllText(path, Encoding.UTF8), Opt);
-                return d != null && d.Format == "WintecTK2Drivers" && d.Entries != null ? d.Entries : null;
-            }
-            catch (Exception)
-            {
-                return null;   // 壊れたファイルは無視する (名前が復元されないだけ)
-            }
-        }
-
         public static List<Entry> Load(string log)
         {
-            return ReadFile(SidecarPath(log)) ?? ReadFile(FallbackPath(log)) ?? new List<Entry>();
+            return LogFile.Load(log).Drivers ?? new List<Entry>();
         }
 
         /// <summary>解析結果のセッションに、保存されているドライバー名を割り当てる (名前が空のセッションだけ)。復元した数を返す。</summary>
@@ -99,8 +58,7 @@ namespace Tk2Gui
         public sealed class Snapshot
         {
             public string LogPath;
-            public int Count;          // 名前のあるセッション数 (0 なら保存ファイルを削除)
-            public string Json;
+            public List<Entry> Entries;   // 名前のあるセッション (空なら保存から外す)
         }
 
         /// <summary>現在のドライバー名から、保存内容を作る (ファイルには触らない。画面のスレッドで呼んでよい)。</summary>
@@ -109,60 +67,32 @@ namespace Tk2Gui
             List<Snapshot> list = new List<Snapshot>();
             foreach (IGrouping<string, SessionRecord> g in res.Sessions.Where(s => !string.IsNullOrEmpty(s.FilePath)).GroupBy(s => s.FilePath))
             {
-                FileData d = new FileData { Log = Path.GetFileName(g.Key) };
+                List<Entry> entries = new List<Entry>();
                 foreach (SessionRecord s in g)
                     if (!string.IsNullOrWhiteSpace(s.Driver))
-                        d.Entries.Add(new Entry { StartT = Math.Round(s.StartT, 3), EndT = Math.Round(s.EndT, 3), Driver = s.Driver.Trim() });
-                list.Add(new Snapshot { LogPath = g.Key, Count = d.Entries.Count, Json = d.Entries.Count == 0 ? null : JsonSerializer.Serialize(d, Opt) });
+                        entries.Add(new Entry { StartT = Math.Round(s.StartT, 3), EndT = Math.Round(s.EndT, 3), Driver = s.Driver.Trim() });
+                list.Add(new Snapshot { LogPath = g.Key, Entries = entries });
             }
             return list;
         }
 
-        /// <summary>現在のドライバー名を保存する (ファイル書き込みを伴うので、画面のスレッドでは呼ばないこと)。</summary>
-        public static List<string> Save(LapAnalysis res)
-        {
-            return Write(MakeSnapshots(res));
-        }
-
-        static readonly object WriteLock = new object();
-
-        /// <summary>保存内容をファイルに書く。名前がひとつもなければ保存ファイルを削除する。保存した場所の一覧を返す。</summary>
-        public static List<string> Write(List<Snapshot> snapshots)
+        /// <summary>
+        /// 保存内容をログの付属情報 (ログ名.log.json) に書く。保存したファイルの一覧を返す。書けなかったものは errors に理由を足す
+        /// (ファイルを書くので、画面のスレッドでは呼ばないこと)
+        /// </summary>
+        public static List<string> Write(List<Snapshot> snapshots, List<string> errors)
         {
             List<string> saved = new List<string>();
-            lock (WriteLock)
             foreach (Snapshot sn in snapshots)
             {
-                string side = SidecarPath(sn.LogPath), fall = FallbackPath(sn.LogPath);
-                if (sn.Count == 0)
-                {
-                    TryDelete(side); TryDelete(fall);
-                    continue;
-                }
-                string json = sn.Json;
                 try
                 {
-                    File.WriteAllText(side, json, new UTF8Encoding(false));
-                    TryDelete(fall);
-                    saved.Add(side);
+                    LogFile.Update(sn.LogPath, d => d.Drivers = sn.Entries.Count == 0 ? null : sn.Entries);
+                    if (sn.Entries.Count > 0) saved.Add(LogFile.PathOf(sn.LogPath));
                 }
-                catch (Exception)
-                {
-                    try
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(fall));
-                        File.WriteAllText(fall, json, new UTF8Encoding(false));
-                        saved.Add(fall);
-                    }
-                    catch (Exception) { /* 保存できなくても解析は続けられる */ }
-                }
+                catch (Exception ex) { if (errors != null) errors.Add(Path.GetFileName(sn.LogPath) + ": " + ex.Message); }
             }
             return saved;
-        }
-
-        static void TryDelete(string path)
-        {
-            try { if (File.Exists(path)) File.Delete(path); } catch (Exception) { }
         }
     }
 }

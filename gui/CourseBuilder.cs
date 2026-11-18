@@ -167,16 +167,24 @@ namespace Tk2Gui
             NumberHandling = JsonNumberHandling.AllowReadingFromString
         };
 
+        /// <summary>保存する。sources (作るのに使ったログ) はコース定義のフォルダからの相対パスにする (フォルダごと移せるように)</summary>
         public void Save(string path)
         {
-            File.WriteAllText(path, JsonSerializer.Serialize(this, JsonOpt), new UTF8Encoding(false));
+            string dir = Path.GetDirectoryName(Path.GetFullPath(path));
+            List<string> abs = Sources;
+            if (Sources != null) Sources = Sources.Select(s => RelPath.ToRel(dir, s)).ToList();
+            try { File.WriteAllText(path, JsonSerializer.Serialize(this, JsonOpt), new UTF8Encoding(false)); }
+            finally { Sources = abs; }
         }
 
+        /// <summary>読む。sources は絶対パスにして返す (前の版のフルパス・ファイル名だけのものもそのまま読める)</summary>
         public static CourseDefinition Load(string path)
         {
             CourseDefinition d = JsonSerializer.Deserialize<CourseDefinition>(File.ReadAllText(path, Encoding.UTF8), JsonOpt);
             if (d == null || d.Format != "WintecTK2Course" || d.Centerline.Count < 8)
                 throw new InvalidDataException("コース定義ファイルではありません: " + Path.GetFileName(path));
+            string dir = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (d.Sources != null) d.Sources = d.Sources.Select(s => RelPath.ToAbs(dir, s)).ToList();
             return d;
         }
 

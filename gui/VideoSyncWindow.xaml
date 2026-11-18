@@ -60,7 +60,7 @@
                 <GroupBox Header="エンジンの回転数・アクセル (音声から)" Margin="0,10,0,0">
                     <StackPanel Margin="4">
                         <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"
-                                   Text="時刻を合わせた動画の音声から、このセッションの回転数を求めて「ログ名.engine.json」に保存します。カート (直結の 2 スト単気筒、KT100 など) は回転数 = 係数 × 速度 とアクセルの ON / OFF、変速機付きの車は音の線をたどった回転数とギア (車両のセットを選びます。ギア比などは解析結果の画面で直せます)。"/>
+                                   Text="時刻を合わせた動画の音声から、このセッションの回転数を求めて「ログ名.rpm.json」に保存します。カート (直結の 2 スト単気筒、KT100 など) は回転数 = 係数 × 速度 とアクセルの ON / OFF、変速機付きの車は音の線をたどった回転数とギア (車両のセットを選びます。ギア比などは解析結果の画面で直せます)。"/>
                         <DockPanel>
                             <TextBlock Text="車" VerticalAlignment="Center" Margin="0,0,6,0"/>
                             <ComboBox Name="VehicleCombo" VerticalAlignment="Center"
@@ -76,7 +76,7 @@
                 <GroupBox Header="心拍 (腕時計などの FIT ファイルから)" Margin="0,10,0,0">
                     <StackPanel Margin="4">
                         <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"
-                                   Text="FIT ファイルの速度とログの速度を比べて時計のずれを求め、心拍を「ログ名.heart.json」に保存します。保存すると、ドライバー名の右にハートと心拍数が出ます (無ければ出ません)。ずれは下のボタンで直せます。"/>
+                                   Text="FIT ファイルの速度とログの速度を比べて時計のずれを求め、心拍の対応を「ログ名.log.json」に保存します (FIT はログのそばの heart フォルダにコピー)。保存すると、ドライバー名の右にハートと心拍数が出ます (無ければ出ません)。ずれは下のボタンで直せます。"/>
                         <StackPanel Orientation="Horizontal">
                             <Button Name="FitButton" Content="FIT を開く..." Padding="12,4" Click="Fit_Click"
                                     ToolTip="このセッションのドライバーが着けていた腕時計などの FIT ファイルを選びます"/>
@@ -108,11 +108,13 @@
                             <TextBox Name="AfterBox" Width="44" Text="5" Margin="0,0,4,0"/>
                             <TextBlock Text="秒" VerticalAlignment="Center"/>
                         </WrapPanel>
+                        <CheckBox Name="MergeCheck" Content="連続している周回を1つに結合" IsChecked="False" Margin="0,6,0,0"
+                                  ToolTip="選んだ周回のうち、続いている周回 (例: L3・L4・L5) は 1 本にまとめ、間が空いた所で別の動画に分けます。前後の余白は、まとめた範囲の最初と最後にだけ付けます。外すと 1 周ずつ切り出します"/>
                         <CheckBox Name="AudioCheck" Content="音声も入れる" IsChecked="True" Margin="0,6,0,0"/>
                         <CheckBox Name="BurnCheck" Content="速度・タイム・セクターを焼き込む" IsChecked="False" Margin="0,6,0,0"
                                   ToolTip="動画素材の書き出しと同じ表示 (同じレイアウトの設定) を映像に重ねて切り出します。表示は後から消せません。書き出しに時間がかかります。焼き込んだ動画は「動画で比較」には使いません (元の動画を使います)"/>
                         <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,6,0,6"
-                                   Text="元の動画と同じフォルダに「元の名前_S6_L3.mp4」のように保存します (H.264、再エンコード)。切り出した動画も時刻合わせ済みとして登録するので、比較画面でそのまま使えます。焼き込むときは「元の名前_S6_L3_overlay.mp4」になります。"/>
+                                   Text="元の動画と同じフォルダに「元の名前_S6_L3.mp4」のように保存します (H.264、再エンコード)。切り出した動画も時刻合わせ済みとして登録するので、比較画面でそのまま使えます。焼き込むときは「元の名前_S6_L3_overlay.mp4」になります。まとめたときは「元の名前_S6_L3-L5.mp4」です。"/>
                         <StackPanel Orientation="Horizontal">
                             <Button Name="ClipButton" Content="切り出す" Padding="12,4" FontWeight="Bold" Click="Clip_Click"/>
                             <Button Name="CancelButton" Content="中止" Padding="10,4" Margin="6,0,0,0" IsEnabled="False" Click="Cancel_Click"/>

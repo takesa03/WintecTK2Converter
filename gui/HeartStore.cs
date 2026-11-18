@@ -9,100 +9,184 @@ using System.Text.Json.Serialization;
 namespace Tk2Gui
 {
     // =====================================================================
-    //  心拍 (腕時計などの FIT ファイルから) を、ログごとに保存する (ログ名.heart.json)
-    //  FIT 1 つにつき 1 項目。心拍の列は FIT の時刻のまま持ち、ログの時刻 = FIT の時刻 + offset。
+    //  心拍 (腕時計などの FIT ファイルから) を、ログごとに保存する (ログの付属情報 ログ名.log.json の heart)
+    //  FIT 1 つにつき 1 項目。ログの時刻 = FIT の時刻 + offset。
     //  offset は「走行動画の時刻合わせ」の画面で、FIT の速度とログの速度を比べて自動で求め、手で直せる。
-    //  どのセッションで合わせたかを持ち、表示のときはそのセッションの項目を優先する
-    //  (ドライバーごとに別の腕時計の FIT があるとき用)。無ければ時刻の重なる項目を使う
+    //  心拍の記録は写さず、毎回 FIT から読む。そのため FIT はログの横の heart\ にコピーしてから登録する (元の FIT は動かさない)。
+    //  どのセッションで合わせたかは、セッションの時刻の範囲で持つ (番号はログの組み合わせや条件で変わるので使わない)。
+    //  表示はそのセッションで合わせた項目だけ (ドライバーごとに別の腕時計の FIT があるとき、ほかの人の心拍を出さない)
     // =====================================================================
     public static class HeartStore
     {
+        public const string Folder = "heart";
+
         public sealed class Entry
         {
-            [JsonPropertyName("fit")] public string Fit { get; set; }             // 元の FIT ファイル
+            [JsonPropertyName("fit")] public string Fit { get; set; }             // FIT ファイル (ログの横の heart\ の中。保存は相対パス)
             [JsonPropertyName("device")] public string Device { get; set; }       // 機器の名前 (Polar Ignite など)
-            [JsonPropertyName("session")] public int Session { get; set; }        // 合わせたセッションの番号
+            [JsonPropertyName("startT")] public double StartT { get; set; }       // 合わせたセッションの範囲 (ログの通算秒)
+            [JsonPropertyName("endT")] public double EndT { get; set; }
             [JsonPropertyName("offset")] public double Offset { get; set; }       // ログの時刻 = FIT の時刻 + offset [s]
             [JsonPropertyName("auto")] public double? AutoOffset { get; set; }    // 速度から自動で求めた offset (参考)
             [JsonPropertyName("candidates"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
             public List<Candidate> Candidates { get; set; }                       // 自動の候補 (相関の高い順)
-            [JsonPropertyName("t")] public double[] T { get; set; }               // FIT の時刻 (2000-01-01 UTC からの秒)
-            [JsonPropertyName("bpm")] public double[] Bpm { get; set; }           // 心拍 [bpm]
+
+            [JsonIgnore] public double[] T;                                       // FIT の時刻 (2000-01-01 UTC からの秒)。FIT から読む
+            [JsonIgnore] public double[] Bpm;                                     // 心拍 [bpm]。FIT から読む
 
             [JsonIgnore] public double From { get { return T != null && T.Length > 0 ? T[0] + Offset : double.NaN; } }
             [JsonIgnore] public double To { get { return T != null && T.Length > 0 ? T[T.Length - 1] + Offset : double.NaN; } }
         }
 
-        sealed class FileData
+        /// <summary>保存先 (画面の案内用)</summary>
+        public static string SidecarPath(string log) { return LogFile.PathOf(log); }
+
+        /// <summary>
+        /// 項目がこのセッション [s0, s1] のものか: 重なりが、短い方の長さの半分以上。
+        /// セッションの分け方が変わっても (分割・結合・停止の秒数)、同じ所を走ったセッションに付いていく
+        /// </summary>
+        static double Match(Entry e, double s0, double s1)
         {
-            [JsonPropertyName("format")] public string Format { get; set; } = "WintecTK2Heart";
-            [JsonPropertyName("version")] public int Version { get; set; } = 1;
-            [JsonPropertyName("log")] public string Log { get; set; }
-            [JsonPropertyName("entries")] public List<Entry> Entries { get; set; } = new List<Entry>();
+            double ov = Math.Min(e.EndT, s1) - Math.Max(e.StartT, s0);
+            double shorter = Math.Min(e.EndT - e.StartT, s1 - s0);
+            if (shorter <= 0) return e.StartT >= s0 - 1 && e.StartT <= s1 + 1 && e.EndT >= s0 - 1 && e.EndT <= s1 + 1 ? 1e-6 : -1;
+            return ov > 0 && ov >= shorter * 0.5 ? ov : -1;
         }
 
-        static readonly JsonSerializerOptions Opt = new JsonSerializerOptions
+        static Entry Pick(List<Entry> list, double s0, double s1)
         {
-            WriteIndented = false,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-        };
-
-        public static string SidecarPath(string log) { return log + ".heart.json"; }
-
-        public static List<Entry> Load(string log)
-        {
-            try
-            {
-                string p = SidecarPath(log);
-                if (string.IsNullOrEmpty(log) || !File.Exists(p)) return new List<Entry>();
-                FileData d = JsonSerializer.Deserialize<FileData>(File.ReadAllText(p, Encoding.UTF8), Opt);
-                if (d == null || d.Format != "WintecTK2Heart" || d.Entries == null) return new List<Entry>();
-                return d.Entries.Where(e => e.T != null && e.Bpm != null && e.T.Length == e.Bpm.Length && e.T.Length > 0).ToList();
-            }
-            catch (Exception)
-            {
-                return new List<Entry>();
-            }
+            if (list == null) return null;
+            Entry best = null; double bestOv = -1;
+            foreach (Entry e in list) { double m = Match(e, s0, s1); if (m >= 0 && m > bestOv) { bestOv = m; best = e; } }
+            return best;
         }
 
-        public static void Save(string log, List<Entry> list)
+        /// <summary>そのセッションの心拍 (FIT を読んで T・Bpm を入れて返す)。無い・FIT を読めなければ null</summary>
+        public static Entry Get(string log, SessionRecord sess)
         {
-            string p = SidecarPath(log);
-            if (list.Count == 0) { if (File.Exists(p)) File.Delete(p); return; }
-            FileData d = new FileData { Log = Path.GetFileName(log), Entries = list };
-            File.WriteAllText(p, JsonSerializer.Serialize(d, Opt), new UTF8Encoding(false));
+            if (string.IsNullOrEmpty(log) || sess == null) return null;
+            Entry e = Pick(LogFile.Load(log).Heart, sess.StartT, sess.EndT);
+            return e != null && Fill(e) ? e : null;
         }
 
-        /// <summary>そのセッションの項目を置き換える</summary>
+        /// <summary>そのセッションの項目を置き換える (FIT は heart\ にコピーしてから)。書けなければ例外</summary>
         public static void Put(string log, Entry e)
         {
-            List<Entry> list = Load(log);
-            list.RemoveAll(x => x.Session == e.Session);
-            list.Add(e);
-            Save(log, list);
+            e.Fit = CopyIn(log, e.Fit);
+            LogFile.Update(log, d =>
+            {
+                List<Entry> list = d.Heart ?? new List<Entry>();
+                list.RemoveAll(x => Match(x, e.StartT, e.EndT) >= 0);
+                list.Add(e);
+                d.Heart = list;
+            });
         }
 
-        /// <summary>そのセッションの項目を消す (無くなればファイルも消す)</summary>
-        public static void Remove(string log, int session)
+        /// <summary>そのセッションの項目を外す (FIT のコピーは消さない)</summary>
+        public static void Remove(string log, SessionRecord sess)
         {
-            List<Entry> list = Load(log);
-            if (list.RemoveAll(x => x.Session == session) > 0) Save(log, list);
-        }
-
-        public static Entry Get(string log, int session)
-        {
-            return Load(log).FirstOrDefault(x => x.Session == session);
+            LogFile.Update(log, d =>
+            {
+                if (d.Heart == null) return;
+                Entry e = Pick(d.Heart, sess.StartT, sess.EndT);
+                if (e != null) d.Heart.Remove(e);
+                if (d.Heart.Count == 0) d.Heart = null;
+            });
         }
 
         /// <summary>FIT の record から項目を作る (心拍のある点だけ)</summary>
-        public static Entry FromFit(FitFile fit, int session, double offset)
+        public static Entry FromFit(FitFile fit, SessionRecord sess, double offset)
+        {
+            double[] t, bpm;
+            Beats(fit, out t, out bpm);
+            return new Entry { Fit = fit.Path, Device = fit.DeviceText, StartT = sess.StartT, EndT = sess.EndT, Offset = offset, T = t, Bpm = bpm };
+        }
+
+        static void Beats(FitFile fit, out double[] t, out double[] bpm)
         {
             List<FitRecord> rs = fit.Records.Where(r => !double.IsNaN(r.HeartRate) && r.HeartRate > 0).OrderBy(r => r.T).ToList();
-            return new Entry
+            t = rs.Select(r => r.T).ToArray();
+            bpm = rs.Select(r => r.HeartRate).ToArray();
+        }
+
+        // 読んだ FIT の心拍 (パス → 更新日時・大きさ・列)。表示のたびに読み直さない
+        sealed class Cached { public DateTime Time; public long Length; public double[] T, Bpm; public string Device; }
+        static readonly Dictionary<string, Cached> Cache = new Dictionary<string, Cached>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>FIT を読んで、心拍の列を入れる。読めなければ false</summary>
+        static bool Fill(Entry e)
+        {
+            if (string.IsNullOrEmpty(e.Fit)) return false;
+            try
             {
-                Fit = fit.Path, Device = fit.DeviceText, Session = session, Offset = offset,
-                T = rs.Select(r => r.T).ToArray(), Bpm = rs.Select(r => r.HeartRate).ToArray()
-            };
+                FileInfo fi = new FileInfo(e.Fit);
+                if (!fi.Exists) return false;
+                Cached c;
+                lock (Cache)
+                {
+                    if (!Cache.TryGetValue(fi.FullName, out c) || c.Time != fi.LastWriteTimeUtc || c.Length != fi.Length) c = null;
+                }
+                if (c == null)
+                {
+                    FitFile fit = FitReader.Load(fi.FullName);
+                    c = new Cached { Time = fi.LastWriteTimeUtc, Length = fi.Length, Device = fit.DeviceText };
+                    Beats(fit, out c.T, out c.Bpm);
+                    lock (Cache) Cache[fi.FullName] = c;
+                }
+                if (c.T.Length == 0) return false;
+                e.T = c.T; e.Bpm = c.Bpm;
+                if (string.IsNullOrEmpty(e.Device)) e.Device = c.Device;
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
+
+        /// <summary>
+        /// FIT をログの横の heart\ にコピーして、コピーのパスを返す。もう heart\ にあればそのまま。
+        /// 同じ名前で中身の違うファイルがあれば「名前 (2).FIT」のように名前を変える。同じ中身ならそれを使う
+        /// </summary>
+        public static string CopyIn(string log, string src)
+        {
+            string dir = Path.Combine(LogFile.DirOf(log), Folder);
+            string full = Path.GetFullPath(src);
+            if (string.Equals(Path.GetDirectoryName(full), dir, StringComparison.OrdinalIgnoreCase)) return full;
+            Directory.CreateDirectory(dir);
+            string name = Path.GetFileName(full);
+            string dst = Path.Combine(dir, name);
+            for (int i = 2; File.Exists(dst); i++)
+            {
+                if (SameContent(full, dst)) return dst;
+                dst = Path.Combine(dir, Path.GetFileNameWithoutExtension(name) + " (" + i + ")" + Path.GetExtension(name));
+            }
+            File.Copy(full, dst);
+            return dst;
+        }
+
+        /// <summary>
+        /// 前の版の取り込み用: FIT のうちカートに乗っていた所 (DrivingPart) の範囲をログの時刻で。
+        /// 速度が無ければ心拍の記録の範囲。どちらも無ければ false
+        /// </summary>
+        internal static bool DrivingRange(string fitPath, double offset, out double s0, out double s1)
+        {
+            s0 = s1 = double.NaN;
+            FitFile fit = FitReader.Load(fitPath);
+            List<FitRecord> rs = DrivingPart(fit.Records.Where(r => !double.IsNaN(r.SpeedKmh)).OrderBy(r => r.T).ToList());
+            if (rs.Count < 2)
+            {
+                double[] t, bpm;
+                Beats(fit, out t, out bpm);
+                if (t.Length < 2) return false;
+                s0 = t[0] + offset; s1 = t[t.Length - 1] + offset;
+                return true;
+            }
+            s0 = rs[0].T + offset; s1 = rs[rs.Count - 1].T + offset;
+            return true;
+        }
+
+        static bool SameContent(string a, string b)
+        {
+            if (new FileInfo(a).Length != new FileInfo(b).Length) return false;
+            return File.ReadAllBytes(a).AsSpan().SequenceEqual(File.ReadAllBytes(b));
         }
 
         /// <summary>自動の時刻合わせの候補</summary>
@@ -332,9 +416,9 @@ namespace Tk2Gui
         /// そのセッションで使う心拍 (そのセッションで合わせた項目だけ。無ければ null = 表示しない)。
         /// ほかのセッションの FIT は使わない (腕時計は交代のときに次のドライバーへ渡すので、時刻が重なっても別の人の心拍のことがある)
         /// </summary>
-        public static HeartTrack For(string log, int session)
+        public static HeartTrack For(string log, SessionRecord sess)
         {
-            HeartStore.Entry e = HeartStore.Get(log, session);
+            HeartStore.Entry e = HeartStore.Get(log, sess);
             return e != null ? new HeartTrack(e) : null;
         }
     }

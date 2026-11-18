@@ -169,7 +169,7 @@ namespace Tk2Gui
             if (L.Shown("sector")) DrawSector(dc, st);
             if (OverlayPrefs.Graph) DrawGraph(dc, st);   // 画面のチェックで出し入れ (ini の [graph] は色・大きさだけ)。セクター表示の上に置くので、その後に
             if (L.Shown("info")) DrawInfo(dc, st);
-            // 回転計: 解析結果 (engine.json) があるときだけ。ini に節が無いレイアウトでも既定の位置に出す
+            // 回転計: 解析結果 (log.json の engine・rpm.json) があるときだけ。ini に節が無いレイアウトでも既定の位置に出す
             if (D.Engine != null && (L.Shown("tacho") || !L.Sections.ContainsKey("tacho"))) DrawTacho(dc, st);
         }
 
@@ -194,7 +194,7 @@ namespace Tk2Gui
             Point p = Place(s, w, h);
             double mx = Math.Max(1000, s.Num("max", 16000)), yel = s.Num("yellow", 13000), red = s.Num("red", 15000);
             bool geared = D.Engine != null && D.Engine.IsGeared;
-            // 変速機付きは、解析結果 (engine.json) に車の目盛りがあればそちらを使う
+            // 変速機付きは、解析結果 (log.json の engine) に車の目盛りがあればそちらを使う
             if (geared && D.Engine.TachoMax > 0)
             {
                 mx = Math.Max(1000, D.Engine.TachoMax);
@@ -394,7 +394,7 @@ namespace Tk2Gui
             string t = head + (string.IsNullOrWhiteSpace(st.Driver) ? "" : "   Driver " + st.Driver.Trim());
             FormattedText ft = Ft(t, size, Colors.White);
             double w = ft.WidthIncludingTrailingWhitespace;
-            // 心拍: 解析結果 (heart.json) があるときだけ、ドライバー名の右にハートと 3 桁の数字。
+            // 心拍: 心拍 (log.json の heart) があるときだけ、ドライバー名の右にハートと 3 桁の数字。
             // 幅はいつも取っておく (記録の途切れで文字の位置が動かないように)
             bool heart = D.Heart != null && (L.Shown("heart") || !L.Sections.ContainsKey("heart"));
             double cell = Cell(size), hw = size * 0.85, gap = size * 0.45, hwAll = heart ? gap + hw + size * 0.2 + cell * 3 : 0;

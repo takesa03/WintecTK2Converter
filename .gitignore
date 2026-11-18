@@ -20,5 +20,12 @@ publish/
 # 走行動画とログの時刻の対応 (個人のログ・動画に紐づく)
 *.videos.json
 *.engine.json
+*.runs.json
+*.heart.json
+# ログの付属情報 (1.5.0 から。上の付属ファイルをまとめたもの) と回転数の解析結果、心拍の FIT
+*.log.json
+*.rpm.json
+*.fit
+*.FIT
 # 画面の設定 (exe と同じフォルダに作られる)
 *.settings.json

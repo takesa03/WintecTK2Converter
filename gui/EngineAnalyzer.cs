@@ -476,7 +476,8 @@ namespace Tk2Gui
     }
 
     // ============================================================
-    //  解析結果の保存: ログ名.engine.json (ログの時刻で持つので、同じ時間を撮った別の動画でも使える)
+    //  解析結果の保存: 車の設定と係数 = ログ名.log.json の engine、区間の列 = ログ名.rpm.json
+    //  (ログの時刻で持つので、同じ時間を撮った別の動画でも使える。前の版の ログ名.engine.json は LogFile が取り込む)
     // ============================================================
     public static class EngineStore
     {
@@ -660,7 +661,48 @@ namespace Tk2Gui
 
         static readonly JsonSerializerOptions Opt = new JsonSerializerOptions { WriteIndented = false };
 
-        public static string SidecarPath(string log) { return log + ".engine.json"; }
+        /// <summary>保存先 (画面の案内用)。車の設定と係数はログの付属情報 (ログ名.log.json の engine)、区間の列は ログ名.rpm.json</summary>
+        public static string SidecarPath(string log) { return LogFile.PathOf(log); }
+
+        public static string SegmentsPath(string log) { return log + ".rpm.json"; }
+
+        sealed class SegFile
+        {
+            [JsonPropertyName("format")] public string Format { get; set; } = "WintecTK2Rpm";
+            [JsonPropertyName("version")] public int Version { get; set; } = 1;
+            [JsonPropertyName("log")] public string Log { get; set; }
+            [JsonPropertyName("segments")] public List<Segment> Segments { get; set; } = new List<Segment>();
+        }
+
+        static readonly object SegLock = new object();
+
+        /// <summary>区間の列を読む (動画のパスは絶対パスにして返す)</summary>
+        static List<Segment> ReadSegments(string log)
+        {
+            string p = SegmentsPath(log);
+            if (!File.Exists(p)) return new List<Segment>();
+            SegFile f = JsonSerializer.Deserialize<SegFile>(File.ReadAllText(p), Opt);
+            if (f == null || f.Format != "WintecTK2Rpm" || f.Segments == null) return new List<Segment>();
+            string dir = LogFile.DirOf(log);
+            foreach (Segment s in f.Segments) s.Video = RelPath.ToAbs(dir, s.Video);
+            return f.Segments;
+        }
+
+        /// <summary>区間の列を書く (動画のパスは相対で保存)。空ならファイルを消す</summary>
+        internal static void WriteSegments(string log, List<Segment> segs)
+        {
+            lock (SegLock)
+            {
+                string p = SegmentsPath(log);
+                if (segs == null || segs.Count == 0) { if (File.Exists(p)) File.Delete(p); return; }
+                string dir = LogFile.DirOf(log);
+                string json;
+                foreach (Segment s in segs) s.Video = RelPath.ToRel(dir, s.Video);
+                try { json = JsonSerializer.Serialize(new SegFile { Log = Path.GetFileName(log), Segments = segs }, Opt); }
+                finally { foreach (Segment s in segs) s.Video = RelPath.ToAbs(dir, s.Video); }
+                LogFile.WriteAtomic(p, json);
+            }
+        }
 
         /// <summary>車の種類と設定だけを写す</summary>
         public static void CopyCar(FileData src, FileData dst)
@@ -671,21 +713,29 @@ namespace Tk2Gui
             dst.MaxGear = src.MaxGear; dst.MaxGearManual = src.MaxGearManual; dst.CarModel = src.CarModel; dst.TachoMax = src.TachoMax; dst.TachoYellow = src.TachoYellow; dst.TachoRed = src.TachoRed;
         }
 
+        /// <summary>車の設定 (log.json) と区間の列 (rpm.json) を合わせて読む。どちらも無ければ null</summary>
         public static FileData Load(string log)
         {
+            if (log == null) return null;
             try
             {
-                string p = SidecarPath(log);
-                if (log != null && File.Exists(p)) return JsonSerializer.Deserialize<FileData>(File.ReadAllText(p), Opt);
+                FileData d = LogFile.Load(log).Engine;
+                List<Segment> segs = ReadSegments(log);
+                if (d == null && segs.Count == 0) return null;
+                if (d == null) d = new FileData();
+                d.Segments = segs;
+                return d;
             }
-            catch (Exception) { }
-            return null;
+            catch (Exception) { return null; }
         }
 
+        /// <summary>車の設定は log.json、区間の列は rpm.json に書く。書けなければ例外</summary>
         public static void Save(string log, FileData d)
         {
             d.Log = Path.GetFileName(log);
-            File.WriteAllText(SidecarPath(log), JsonSerializer.Serialize(d, Opt));
+            if (d.Segments == null) d.Segments = new List<Segment>();
+            WriteSegments(log, d.Segments);
+            LogFile.Update(log, x => x.Engine = d);
         }
 
         /// <summary>解析結果を足す (同じ動画の結果は置き換え)。係数は手で直していなければ、全部の結果の重み付き平均</summary>

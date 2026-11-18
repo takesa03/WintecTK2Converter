@@ -16,7 +16,7 @@ namespace Tk2Gui
     // =====================================================================
     //  走行動画の時刻合わせ・切り出し
     //  動画をコマ送りして、ある周回の開始 (ラインの通過) のコマで「開始」を押すと、
-    //  動画の 0 秒がログの何秒か (t0) が決まり、ログ名.videos.json に保存する。
+    //  動画の 0 秒がログの何秒か (t0) が決まり、ログの付属情報 (ログ名.log.json) に保存する。
     //  選んだ周回を、前後の余白付きで MP4 に切り出せる (切り出した動画も t0 付きで登録)
     // =====================================================================
     public partial class VideoSyncWindow : Window
@@ -76,6 +76,7 @@ namespace Tk2Gui
             st.Text(AfterBox, "After");
             st.Check(AudioCheck, "Audio");
             st.Check(BurnCheck, "Burn");
+            st.Check(MergeCheck, "Merge");
             st.Check(OverlayCheck, "Overlay");
             OverlayPrefs.BindGraph(GraphCheck, () => _pane.RefreshOverlay());   // 速度のグラフ (書き出し・動画で比較と共通)
             FillVehicles();
@@ -364,15 +365,28 @@ namespace Tk2Gui
             VideoInfo vi = _vi;
             string src = _video; double t0 = _t0; double dur = _vi.Duration;
             string dir = Path.GetDirectoryName(src), stem = Path.GetFileNameWithoutExtension(src);
-            var jobs = new List<Tuple<LapRecord, double, double, string>>();
-            List<string> skipped = new List<string>();
+            // 切り出す単位: 1 周ずつ、または続いている周回 (前の周回の終わり = 次の周回の始まり) をひとまとめ
+            var groups = new List<List<LapRecord>>();
+            bool merge = MergeCheck.IsChecked == true;
             foreach (LapRecord r in sel)
             {
-                double a = r.StartT - before - t0, b = r.EndT + after - t0;
-                if (b <= 0 || a >= dur) { skipped.Add(VideoKit.Label(_sess, r)); continue; }
+                List<LapRecord> last = groups.Count > 0 ? groups[groups.Count - 1] : null;
+                if (merge && last != null && r.StartT - last[last.Count - 1].EndT <= 0.5) last.Add(r);
+                else groups.Add(new List<LapRecord> { r });
+            }
+            // (Item1 = 中心の周回。まとめたときは null、Item2 = 動画の開始秒、Item3 = 長さ、Item4 = 出力先、Item5 = 名前、Item6 = 周回の範囲)
+            var jobs = new List<Tuple<LapRecord, double, double, string, string, Tuple<double, double>>>();
+            List<string> skipped = new List<string>();
+            foreach (List<LapRecord> g in groups)
+            {
+                LapRecord f = g[0], l = g[g.Count - 1];
+                string lab = VideoKit.Label(_sess, f);
+                if (g.Count > 1) lab += "-" + VideoKit.Label(_sess, l).Substring(("S" + _sess.No + "-").Length);
+                double a = f.StartT - before - t0, b = l.EndT + after - t0;
+                if (b <= 0 || a >= dur) { skipped.Add(lab); continue; }
                 a = Math.Max(0, a); b = Math.Min(dur, b);
-                string lab = VideoKit.Label(_sess, r);
-                jobs.Add(Tuple.Create(r, a, b - a, Path.Combine(dir, stem + "_" + lab.Replace("-", "_") + (burn ? "_overlay" : "") + ".mp4")));
+                string file = stem + "_" + VideoKit.Label(_sess, f).Replace("-", "_") + (g.Count > 1 ? "-" + VideoKit.Label(_sess, l).Substring(("S" + _sess.No + "-").Length) : "");
+                jobs.Add(Tuple.Create(g.Count == 1 ? f : null, a, b - a, Path.Combine(dir, file + (burn ? "_overlay" : "") + ".mp4"), lab, Tuple.Create(f.StartT, l.EndT)));
             }
             if (jobs.Count == 0) { Status("選んだ周回は、この動画に映っていません: " + string.Join(", ", skipped)); return; }
             List<string> exist = jobs.Where(j => File.Exists(j.Item4)).Select(j => Path.GetFileName(j.Item4)).ToList();
@@ -394,8 +408,9 @@ namespace Tk2Gui
                     if (burn)
                     {
                         // その周回 (走行) を中心にした表示を、映像と同じ大きさ・コマ数で描いて重ねる
+                        // まとめた周回は、セッション全体の表示から必要な時刻だけを描く
                         LapRecord lap = j.Item1;
-                        double before2 = lap.StartT - (t0 + j.Item2) + 1, after2 = (t0 + j.Item2 + j.Item3) - lap.EndT + 1;
+                        double before2 = j.Item6.Item1 - (t0 + j.Item2) + 1, after2 = (t0 + j.Item2 + j.Item3) - j.Item6.Item2 + 1;
                         OverlayData d = new OverlayData(_def, _sess, _sectorNames, _gps, VideoKit.Options(layout), Math.Max(1, before2), Math.Max(1, after2), lap);
                         double fps = vi.Fps, clipT0 = t0 + j.Item2;
                         int total = (int)Math.Ceiling(j.Item3 * fps) + 1;
@@ -409,7 +424,7 @@ namespace Tk2Gui
                     }
                     else
                         await Task.Run(() => FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio, prog, ct));
-                    VideoStore.Put(_log, new VideoStore.Entry { Path = j.Item4, T0 = t0 + j.Item2, Duration = j.Item3, ClipOf = src, Label = VideoKit.Label(_sess, j.Item1) + (burn ? " (表示入り)" : ""), Overlay = burn });
+                    VideoStore.Put(_log, new VideoStore.Entry { Path = j.Item4, T0 = t0 + j.Item2, Duration = j.Item3, ClipOf = src, Label = j.Item5 + (burn ? " (表示入り)" : ""), Overlay = burn });
                     done++;
                 }
                 Progress.Value = 1;
@@ -465,7 +480,7 @@ namespace Tk2Gui
             FitFile fit;
             try { fit = FitReader.Load(d.FileName); }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "FIT ファイルを読めません", MessageBoxButton.OK, MessageBoxImage.Error); return; }
-            HeartStore.Entry en = HeartStore.FromFit(fit, _sess.No, 0);
+            HeartStore.Entry en = HeartStore.FromFit(fit, _sess, 0);
             if (en.T.Length == 0) { MessageBox.Show(this, "この FIT ファイルには心拍の記録がありません。", "心拍がありません", MessageBoxButton.OK, MessageBoxImage.Information); return; }
 
             // 時計のずれ: 腕時計の時計は日付ごと狂っていることがあるので、FIT の時刻は使わず、
@@ -503,7 +518,7 @@ namespace Tk2Gui
                     VideoKit.Local(en.T[0] + c.Offset), FmtOffset(c.Offset), Path.GetFileName(HeartStore.SidecarPath(_log)),
                     c.Corr < 0.5 || c.Agree * 2 <= c.Windows ? "合い方が弱いので、ほかの候補も見比べてください。" : ""));
             }
-            HeartStore.Put(_log, en);
+            if (!PutHeart(en)) return;
             HeartChanged();
         }
 
@@ -518,7 +533,7 @@ namespace Tk2Gui
 
         void FitNudge_Click(object sender, RoutedEventArgs e)
         {
-            HeartStore.Entry en = HeartStore.Get(_log, _sess.No);
+            HeartStore.Entry en = HeartStore.Get(_log, _sess);
             if (en == null) { Status("先に「FIT を開く...」で心拍のファイルを選んでください。"); return; }
             string tag = (string)((Button)sender).Tag;
             if (tag == "auto")
@@ -527,7 +542,7 @@ namespace Tk2Gui
                 en.Offset = en.AutoOffset.Value;
             }
             else en.Offset = Math.Round(en.Offset + double.Parse(tag, Inv), 1);
-            HeartStore.Put(_log, en);
+            if (!PutHeart(en)) return;
             HeartChanged();
         }
 
@@ -535,24 +550,35 @@ namespace Tk2Gui
         {
             if (_fitFill) return;
             ComboBoxItem it = FitCandCombo.SelectedItem as ComboBoxItem;
-            HeartStore.Entry en = HeartStore.Get(_log, _sess.No);
+            HeartStore.Entry en = HeartStore.Get(_log, _sess);
             if (it == null || en == null) return;
             HeartStore.Candidate c = (HeartStore.Candidate)it.Tag;
             en.Offset = c.Offset; en.AutoOffset = c.Offset;
-            HeartStore.Put(_log, en);
+            if (!PutHeart(en)) return;
             Status("候補を切り替えました: FIT の先頭 = " + VideoKit.Local(en.T[0] + c.Offset));
             HeartChanged();
         }
 
         void FitRemove_Click(object sender, RoutedEventArgs e)
         {
-            if (HeartStore.Get(_log, _sess.No) == null) { Status("このセッションには心拍がありません。"); return; }
-            HeartStore.Remove(_log, _sess.No);
-            Status("このセッションの心拍を外しました。");
+            try { HeartStore.Remove(_log, _sess); }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "心拍を外せません", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            Status("このセッションの心拍を外しました (heart\\ にコピーした FIT は残しています)。");
             HeartChanged();
         }
 
-        /// <summary>heart.json を変えたあと: 表示を読み直す</summary>
+        /// <summary>心拍を保存する (FIT はログの横の heart\ にコピー)。できなければ知らせて false</summary>
+        bool PutHeart(HeartStore.Entry en)
+        {
+            try { HeartStore.Put(_log, en); return true; }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "心拍を保存できません", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
+        }
+
+        /// <summary>心拍 (log.json の heart) を変えたあと: 表示を読み直す</summary>
         void HeartChanged()
         {
             if (_data != null) _data.ReloadHeart();
@@ -563,7 +589,7 @@ namespace Tk2Gui
         bool _fitFill;
         void UpdateFitText()
         {
-            HeartStore.Entry en = HeartStore.Get(_log, _sess.No);
+            HeartStore.Entry en = HeartStore.Get(_log, _sess);
             _fitFill = true;
             FitCandCombo.Items.Clear();
             if (en != null && en.Candidates != null)

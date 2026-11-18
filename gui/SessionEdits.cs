@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -31,58 +30,25 @@ namespace Tk2Gui
         public bool HasMergeAt(double t) { return Merges.Any(s => Near(s, t)); }
     }
 
-    /// <summary>セッション編集の保存・読み込み。保存先はログのそばの「ログ名.sessions.json」、書けなければ %LOCALAPPDATA% に退避。</summary>
+    /// <summary>セッション編集の保存・読み込み。保存先はログの付属情報 (ログ名.log.json の sessionEdits)</summary>
     public static class SessionEditStore
     {
-        static readonly JsonSerializerOptions Opt = new JsonSerializerOptions { WriteIndented = true };
-        static readonly object WriteLock = new object();
-
-        static string Sidecar(string log) { return log + ".sessions.json"; }
-
-        static string Fallback(string log)
-        {
-            string key = BitConverter.ToString(SHA1.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(log).ToLowerInvariant()))).Replace("-", "").Substring(0, 16);
-            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WintecTK2Converter", "sessions");
-            return Path.Combine(dir, Path.GetFileName(log) + "_" + key + ".json");
-        }
-
-        static SessionEdits Read(string path)
-        {
-            try
-            {
-                if (!File.Exists(path)) return null;
-                SessionEdits d = JsonSerializer.Deserialize<SessionEdits>(File.ReadAllText(path, Encoding.UTF8), Opt);
-                return d != null && d.Format == "WintecTK2SessionEdits" ? d : null;
-            }
-            catch (Exception) { return null; }   // 壊れたファイルは無視する (編集がなくなるだけ)
-        }
-
         public static SessionEdits Load(string log)
         {
-            SessionEdits d = Read(Sidecar(log)) ?? Read(Fallback(log)) ?? new SessionEdits();
-            if (d.Splits == null) d.Splits = new List<double>();
-            if (d.Merges == null) d.Merges = new List<double>();
-            return d;
+            SessionEditsData d = LogFile.Load(log).SessionEdits;
+            return new SessionEdits
+            {
+                Log = Path.GetFileName(log),
+                Splits = d != null && d.Splits != null ? new List<double>(d.Splits) : new List<double>(),
+                Merges = d != null && d.Merges != null ? new List<double>(d.Merges) : new List<double>()
+            };
         }
 
-        /// <summary>保存する (ファイルを書くので、画面のスレッドでは呼ばない)。編集が空なら保存ファイルを消す。</summary>
+        /// <summary>保存する (ファイルを書くので、画面のスレッドでは呼ばない)。書けなければ例外</summary>
         public static void Save(string log, SessionEdits ed)
         {
-            lock (WriteLock)
-            {
-                string side = Sidecar(log), fall = Fallback(log);
-                if (ed.IsEmpty) { TryDelete(side); TryDelete(fall); return; }
-                ed.Log = Path.GetFileName(log);
-                string json = JsonSerializer.Serialize(ed, Opt);
-                try { File.WriteAllText(side, json, new UTF8Encoding(false)); TryDelete(fall); }
-                catch (Exception)
-                {
-                    try { Directory.CreateDirectory(Path.GetDirectoryName(fall)); File.WriteAllText(fall, json, new UTF8Encoding(false)); }
-                    catch (Exception) { }
-                }
-            }
+            LogFile.Update(log, d => d.SessionEdits = ed.IsEmpty ? null
+                : new SessionEditsData { Splits = new List<double>(ed.Splits), Merges = new List<double>(ed.Merges) });
         }
-
-        static void TryDelete(string p) { try { if (File.Exists(p)) File.Delete(p); } catch (Exception) { } }
     }
 }

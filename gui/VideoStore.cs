@@ -9,7 +9,7 @@ using System.Text.Json.Serialization;
 namespace Tk2Gui
 {
     // =====================================================================
-    //  走行動画とログの時刻の対応を、ログごとに保存する (ログ名.videos.json)
+    //  走行動画とログの時刻の対応を、ログごとに保存する (ログの付属情報 ログ名.log.json の videos。パスは相対で保存)
     //  1 本の動画につき「動画の 0 秒がログの何秒か (t0)」を持つ。
     //  動画の t 秒 = ログの t0 + t 秒。切り出した動画も、切り出した所の t0 で登録する
     // =====================================================================
@@ -27,50 +27,31 @@ namespace Tk2Gui
             [JsonIgnore] public double EndT { get { return T0 + Duration; } }
         }
 
-        sealed class FileData
-        {
-            [JsonPropertyName("format")] public string Format { get; set; } = "WintecTK2Videos";
-            [JsonPropertyName("version")] public int Version { get; set; } = 1;
-            [JsonPropertyName("log")] public string Log { get; set; }
-            [JsonPropertyName("videos")] public List<Entry> Videos { get; set; } = new List<Entry>();
-        }
+        /// <summary>保存先 (ログの付属情報 = ログ名.log.json。画面の案内用)</summary>
+        public static string SidecarPath(string log) { return LogFile.PathOf(log); }
 
-        static readonly JsonSerializerOptions Opt = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-        };
-
-        public static string SidecarPath(string log) { return log + ".videos.json"; }
-
+        /// <summary>登録してある動画 (パスは絶対パスにして返す)</summary>
         public static List<Entry> Load(string log)
         {
-            try
-            {
-                string p = SidecarPath(log);
-                if (!File.Exists(p)) return new List<Entry>();
-                FileData d = JsonSerializer.Deserialize<FileData>(File.ReadAllText(p, Encoding.UTF8), Opt);
-                return d != null && d.Format == "WintecTK2Videos" && d.Videos != null ? d.Videos.Where(v => !string.IsNullOrEmpty(v.Path)).ToList() : new List<Entry>();
-            }
-            catch (Exception)
-            {
-                return new List<Entry>();
-            }
+            List<Entry> v = LogFile.Load(log).Videos;
+            return v == null ? new List<Entry>() : v.Where(x => !string.IsNullOrEmpty(x.Path)).ToList();
         }
 
         public static void Save(string log, List<Entry> list)
         {
-            FileData d = new FileData { Log = System.IO.Path.GetFileName(log), Videos = list };
-            File.WriteAllText(SidecarPath(log), JsonSerializer.Serialize(d, Opt), new UTF8Encoding(false));
+            LogFile.Update(log, d => d.Videos = list == null || list.Count == 0 ? null : list);
         }
 
         /// <summary>動画を登録 (同じパスがあれば置き換える)</summary>
         public static void Put(string log, Entry e)
         {
-            List<Entry> list = Load(log);
-            list.RemoveAll(v => string.Equals(v.Path, e.Path, StringComparison.OrdinalIgnoreCase));
-            list.Add(e);
-            Save(log, list);
+            LogFile.Update(log, d =>
+            {
+                List<Entry> list = d.Videos ?? new List<Entry>();
+                list.RemoveAll(v => string.Equals(v.Path, e.Path, StringComparison.OrdinalIgnoreCase));
+                list.Add(e);
+                d.Videos = list;
+            });
         }
 
         public static Entry Get(string log, string video)

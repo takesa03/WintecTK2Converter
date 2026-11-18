@@ -29,7 +29,7 @@
   <!-- バージョン: Major.Minor.Build はここを直接編集して手動で管理する。リビジョン (4 桁目) はビルドのたびに 1 つ増やす (revision.txt)。
        WPF の XAML コンパイル用の一時プロジェクト (*_wpftmp.csproj) でも走って二重に増えるため、本体のときだけ実行する -->
   <PropertyGroup>
-    <VersionMajorMinorBuild>1.4.0</VersionMajorMinorBuild>
+    <VersionMajorMinorBuild>1.5.0</VersionMajorMinorBuild>
     <RevisionFile>$(MSBuildProjectDirectory)\revision.txt</RevisionFile>
   </PropertyGroup>
 

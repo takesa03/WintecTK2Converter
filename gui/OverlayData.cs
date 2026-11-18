@@ -52,7 +52,7 @@ namespace Tk2Gui
         public double Throttle = double.NaN; // アクセル 0 (OFF) 〜 1 (ON)。前後 0.15 秒の ON の割合。不明なら NaN
         public int Gear;                     // 変速機付き: いまのギア (0 = 分からない)
         public double SlipBase = double.NaN; // 空転の判定の基準の回転数 (音の回転数がこれより slip % 以上高いと SLIP)
-        public double HeartRate = double.NaN; // 心拍 [bpm] (ログ名.heart.json が無い・その時刻の記録が無ければ NaN)
+        public double HeartRate = double.NaN; // 心拍 [bpm] (心拍の FIT が無い・その時刻の記録が無ければ NaN)
         public double HeartPhase;            // 鼓動の位相 0 (拍の直後) 〜 1 (次の拍の直前)
 
         public int SessionNo;
@@ -91,8 +91,8 @@ namespace Tk2Gui
         public readonly double Lat0, Lon0, Kx, Ky;
         public readonly double StartT, EndT;           // 書き出す範囲 (ログの通算秒)
         public readonly double MaxSpeedKmh;            // セッション内の最高速 (速度計の目盛りの最大値を決める)
-        public readonly EngineStore.FileData Engine;   // 回転数・アクセルの解析結果 (ログ名.engine.json。無ければ null)
-        public volatile HeartTrack Heart;              // 心拍 (ログ名.heart.json。無ければ null = 表示しない)。時刻合わせの画面で入れ替える
+        public readonly EngineStore.FileData Engine;   // 回転数・アクセルの解析結果 (ログ名.log.json の engine と ログ名.rpm.json。無ければ null)
+        public volatile HeartTrack Heart;              // 心拍 (ログ名.log.json の heart と FIT。無ければ null = 表示しない)。時刻合わせの画面で入れ替える
 
         readonly List<GpsSample> _gps;
         readonly double[] _t, _x, _y, _v, _alt, _lat, _lon, _cum;
@@ -203,10 +203,10 @@ namespace Tk2Gui
             if (GraphLap(cur)) { st.GraphCur = GraphRun(cur); st.GraphEl = t - cur.StartT; }
         }
 
-        /// <summary>心拍 (ログ名.heart.json) を読み直す</summary>
+        /// <summary>心拍 (ログ名.log.json の heart と FIT) を読み直す</summary>
         public void ReloadHeart()
         {
-            Heart = HeartTrack.For(Sess.FilePath, Sess.No);
+            Heart = HeartTrack.For(Sess.FilePath, Sess);
         }
 
         /// <summary>回転数 (直結なので 係数 × メーターの速度)・音から求めた回転数・アクセルを入れる</summary>

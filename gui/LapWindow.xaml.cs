@@ -147,10 +147,41 @@ namespace Tk2Gui
                         if (System.IO.File.Exists(f)) AddFile(f);
             });
             Settings.Track(this, "LapWindow", st.SaveAll);
+            // 解析の条件は、ログに保存してあればそれを使う (前回の画面の値より優先。同じ結果を作り直せるように)
+            _ctorDone = true;
+            LoadParamsFrom(FileList.Items.Cast<string>().ToList());
             UpdateButtons();
         }
 
         string _coursePath;   // いま使っているコース定義のファイル (前回の設定として覚える)
+        bool _ctorDone;
+
+        /// <summary>
+        /// ログの付属情報 (ログ名.log.json) に保存してある解析の条件を、画面に入れる。
+        /// ログごとに違うときは最初のログの値を使い、知らせる (解析すると、画面の値で全部のログを解析して保存する)
+        /// </summary>
+        void LoadParamsFrom(List<string> paths)
+        {
+            List<Tuple<string, LogParams>> got = new List<Tuple<string, LogParams>>();
+            foreach (string p in paths)
+            {
+                LogParams lp = LogFile.Load(p).Params;
+                foreach (string n in LogFile.TakeNotes(p)) Log(n);
+                if (lp != null) got.Add(Tuple.Create(p, lp));
+            }
+            if (got.Count == 0) return;
+            LogParams first = got[0].Item2;
+            string[] now = { PitStopBox.Text, MinSpeedBox.Text, SlowLapBox.Text };
+            PitStopBox.Text = first.PitStopSec.ToString("0.###", Inv);
+            MinSpeedBox.Text = first.MinCrossSpeedKmh.ToString("0.###", Inv);
+            SlowLapBox.Text = first.SlowLapRatio.ToString("0.###", Inv);
+            if (now[0] != PitStopBox.Text || now[1] != MinSpeedBox.Text || now[2] != SlowLapBox.Text)
+                Log(string.Format(Inv, "解析の条件を {0} から読みました (停止 {1} 秒・通過 {2} km/h・遅い周回 {3} 倍)",
+                    System.IO.Path.GetFileName(got[0].Item1), PitStopBox.Text, MinSpeedBox.Text, SlowLapBox.Text));
+            List<string> differ = got.Where(g => !g.Item2.SameAs(first)).Select(g => System.IO.Path.GetFileName(g.Item1)).ToList();
+            if (differ.Count > 0)
+                Log("注意: 解析の条件がログごとに違います (" + string.Join(", ", differ) + ")。解析すると、画面の値で全部のログを解析し、その値を各ログに保存します。");
+        }
 
         // ================= 入力 =================
 
@@ -225,7 +256,10 @@ namespace Tk2Gui
             }
             if (ext != ".tk2" && ext != ".nmea" && ext != ".txt" && ext != ".log") return;
             if (!FileList.Items.Cast<string>().Any(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase)))
+            {
                 FileList.Items.Add(path);
+                if (_ctorDone) LoadParamsFrom(new List<string> { path });
+            }
             SaveLogList();
             UpdateButtons();
         }
@@ -300,6 +334,8 @@ namespace Tk2Gui
             List<string> paths = FileList.Items.Cast<string>().ToList();
             CourseDefinition def = _def;
             int restored = 0, runsRestored = 0;
+            List<string> notes = new List<string>();
+            LogParams saveParams = def.IsGymkhana ? null : new LogParams { PitStopSec = prm.PitStopSec, MinCrossSpeedKmh = prm.MinCrossSpeedKmh, SlowLapRatio = prm.SlowLapRatio };
             _busy = true; UpdateButtons();
             InfoText.Foreground = Theme.Ok;
             InfoText.Text = "解析中...";
@@ -309,6 +345,13 @@ namespace Tk2Gui
             {
                 LapAnalysis res = await Task.Run(() =>
                 {
+                    // 解析の条件をログごとに保存する (後で同じ結果を作り直せるように)。サーキットだけ
+                    if (saveParams != null)
+                        foreach (string p in paths)
+                        {
+                            try { LogFile.Update(p, d => { if (!saveParams.SameAs(d.Params)) d.Params = saveParams; }); }
+                            catch (Exception ex) { notes.Add("解析の条件を保存できません (" + System.IO.Path.GetFileName(p) + "): " + ex.Message); }
+                        }
                     List<List<GpsSample>> files = paths.Select(GpsLoader.Load).ToList();
                     foreach (string p in paths)       // 手動のセッション編集を、保存ファイルから読む (まだ読んでいないログだけ)
                     {
@@ -323,11 +366,13 @@ namespace Tk2Gui
                         runsRestored = RunStore.Apply(r);   // ジムカーナ: 走行ごとのメモ・ドライバー・印を復元し、印を反映してベストを計算し直す
                         LapAnalyzer.RecomputeGymkhana(r);
                     }
+                    foreach (string p in paths) notes.AddRange(LogFile.TakeNotes(p));
                     return r;
                 });
                 long msCalc = swAll.ElapsedMilliseconds;
                 _res = res;
                 _readOnly = false;
+                foreach (string l in notes) Log(l);
                 foreach (string l in res.Log) Log(l);
                 if (restored > 0) Log(string.Format("ドライバー名を復元: {0} セッション", restored));
                 if (runsRestored > 0) Log(string.Format("走行のメモ・ドライバー・印を復元: {0} 本", runsRestored));
@@ -450,10 +495,12 @@ namespace Tk2Gui
             List<RunStore.Snapshot> snaps = RunStore.MakeSnapshots(_res);
             _saveChain = _saveChain.ContinueWith(_ =>
             {
-                List<string> saved = RunStore.Write(snaps);
+                List<string> errors = new List<string>();
+                List<string> saved = RunStore.Write(snaps, errors);
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (saved.Count > 0) Log("走行のメモ・ドライバー・印を保存: " + string.Join(", ", saved.Select(System.IO.Path.GetFileName)));
+                    foreach (string er in errors) Log("走行のメモ・ドライバー・印を保存できません: " + er);
                 }));
             });
         }
@@ -842,7 +889,11 @@ namespace Tk2Gui
         {
             if (_busy) return;
             SessionEdits copy = new SessionEdits { Splits = new List<double>(ed.Splits), Merges = new List<double>(ed.Merges) };
-            _saveChain = _saveChain.ContinueWith(_ => SessionEditStore.Save(path, copy));
+            _saveChain = _saveChain.ContinueWith(_ =>
+            {
+                try { SessionEditStore.Save(path, copy); }
+                catch (Exception ex) { Dispatcher.BeginInvoke(new Action(() => Log("セッションの編集を保存できません (" + System.IO.Path.GetFileName(path) + "): " + ex.Message))); }
+            });
             Log(string.Format("セッションを編集: {0} (分割 {1} 件 / 結合 {2} 件)", System.IO.Path.GetFileName(path), ed.Splits.Count, ed.Merges.Count));
             var _ignored = RunAnalysisAsync(focusT);
         }
@@ -956,10 +1007,12 @@ namespace Tk2Gui
                 _saveChain = _saveChain.ContinueWith(_ =>
                 {
                     System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
-                    List<string> saved = DriverStore.Write(snaps);
+                    List<string> errors = new List<string>();
+                    List<string> saved = DriverStore.Write(snaps, errors);
                     long ms = sw.ElapsedMilliseconds;
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        foreach (string er in errors) Log("ドライバー名を保存できません: " + er);
                         if (saved.Count > 0) Log("ドライバー名を保存: " + string.Join(", ", saved.Select(System.IO.Path.GetFileName))
                             + (ms >= 500 ? string.Format("  (書き込みに {0:0.0} 秒かかりました: {1})", ms / 1000.0, System.IO.Path.GetDirectoryName(saved[0])) : ""));
                     }));
