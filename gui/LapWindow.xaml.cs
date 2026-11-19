@@ -974,16 +974,16 @@ namespace Tk2Gui
         {
             // 周回表の区間の列を作り直す
             LapGrid.Columns.Clear();
-            LapGrid.Columns.Add(new DataGridTextColumn { Header = "Session", Binding = new System.Windows.Data.Binding("Session"), Width = 56 });
+            LapGrid.Columns.Add(new DataGridTextColumn { Header = "Session", Binding = new System.Windows.Data.Binding("Session"), Width = 72 });
             bool gym = _res.IsGymkhana;
-            LapGrid.Columns.Add(new DataGridTextColumn { Header = gym ? "Heat" : "Lap", Binding = new System.Windows.Data.Binding("Lap"), Width = 118 });
+            LapGrid.Columns.Add(new DataGridTextColumn { Header = gym ? "Heat" : "Lap", Binding = new System.Windows.Data.Binding("Lap"), Width = gym ? 52 : 118 });   // ジムカーナは番号だけ
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "開始", Binding = new System.Windows.Data.Binding("Start"), Width = 70 });
             for (int k = 0; k < _res.SectorNames.Length; k++)
                 LapGrid.Columns.Add(MarkCol(_res.SectorNames[k], "Sectors[" + k.ToString(Inv) + "]", "S" + k.ToString(Inv), 72));
             LapGrid.Columns.Add(MarkCol(gym ? "タイム" : "ラップ", "LapTime", "LapTime", 90));
             if (gym) LapGrid.Columns.Add(new DataGridTextColumn { Header = "差", Binding = new System.Windows.Data.Binding("Gap"), Width = 64 });
             if (gym) LapGrid.Columns.Add(new DataGridTextColumn { Header = "ドライバー", Binding = new System.Windows.Data.Binding("Driver"), Width = 90 });
-            LapGrid.Columns.Add(MarkCol("最高 km/h", "MaxKmh", "MaxKmh", 80));
+            LapGrid.Columns.Add(MarkCol("最高 km/h", "MaxKmh", "MaxKmh", 90));
             if (gym) LapGrid.Columns.Add(new DataGridTextColumn { Header = "メモ", Binding = new System.Windows.Data.Binding("Memo"), Width = 200 });
             LapGrid.Columns.Add(new DataGridTextColumn { Header = "備考", Binding = new System.Windows.Data.Binding("Note"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
             RunEditPanel.Visibility = gym ? Visibility.Visible : Visibility.Collapsed;
