@@ -52,7 +52,12 @@
                       Checked="Overlay_Changed" Unchecked="Overlay_Changed" ToolTip="動画素材の書き出しと同じ表示 (同じレイアウトの設定) を、それぞれの映像に重ねます"/>
             <CheckBox Name="GraphCheck" Content="速度のグラフ" VerticalAlignment="Center" Margin="0,0,14,4"
                       ToolTip="右下のセクター表示の上に、距離ごとの速度のグラフを出します。動画素材の書き出し・走行動画の時刻合わせと共通の設定です (どこかで変えるとほかの画面にも反映)"/>
+            <CheckBox Name="SubCheck" Content="サブ動画" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,4"
+                      Checked="SubCheck_Changed" Unchecked="SubCheck_Changed"
+                      ToolTip="走行動画の時刻合わせで登録したサブ動画 (ペダルなど) を、それぞれの映像に重ねます (音声は出しません)"/>
             <CheckBox Name="LoopCheck" Content="繰り返す" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,4"/>
+            <Button Content="表示の編集..." Padding="10,4" Margin="0,0,4,4" Click="EditLayout_Click"
+                    ToolTip="重ねる表示の ON/OFF と位置を変えます (A の映像で確認します。変えた内容は両方に反映)"/>
             <Button Content="地図 (航空写真) を開く" Padding="10,4" Margin="0,0,4,4" Click="Map_Click"
                     ToolTip="2 台の位置を航空写真の上で比べる画面を開きます (この画面の再生と一緒に動きます)"/>
             <Button Content="並べて配置" Padding="10,4" Margin="0,0,0,4" Click="Arrange_Click"

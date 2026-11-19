@@ -127,6 +127,27 @@ namespace Tk2Gui
         }
 
         /// <summary>文字を描く。ax = 0 左 / 0.5 中央 / 1 右, ay = 0 上 / 0.5 中央 / 1 下 (行の箱で)</summary>
+        /// <summary>数字を等幅で描く (数字は 1 文字ずつ一番広い数字の幅の枠の中央に置く。値が変わっても左右に揺れない)</summary>
+        void TextDigits(DrawingContext dc, string s, double size, Color c, double x, double y, double ax, double ay, double outline, Color oc)
+        {
+            if (string.IsNullOrEmpty(s)) return;
+            double dw = 0;
+            for (char d = '0'; d <= '9'; d++) dw = Math.Max(dw, Ft(d.ToString(), size, c).WidthIncludingTrailingWhitespace);
+            double[] cw = new double[s.Length];
+            double total = 0;
+            for (int i = 0; i < s.Length; i++)
+            {
+                cw[i] = char.IsDigit(s[i]) ? dw : Ft(s[i].ToString(), size, c).WidthIncludingTrailingWhitespace;
+                total += cw[i];
+            }
+            double cx = x - total * ax;
+            for (int i = 0; i < s.Length; i++)
+            {
+                Text(dc, s[i].ToString(), size, c, cx + cw[i] / 2, y, 0.5, ay, outline, oc);
+                cx += cw[i];
+            }
+        }
+
         void Text(DrawingContext dc, string s, double size, Color c, double x, double y, double ax, double ay, double outline, Color oc)
         {
             if (string.IsNullOrEmpty(s)) return;
@@ -157,20 +178,43 @@ namespace Tk2Gui
 
         // ---- 1 フレーム -------------------------------------------------
 
+        /// <summary>
+        /// true にすると、Draw のたびに要素ごとの外枠 (この描画の画素) を Bounds に残す (レイアウトエディタの当たり判定用)。
+        /// 要素を 1 つずつ DrawingGroup に描いてから貼るので、少し重くなる
+        /// </summary>
+        public bool CollectBounds;
+
+        /// <summary>前の Draw で描いた要素の外枠 (節の名前 → 枠)。心拍は session に含む。CollectBounds が true のときだけ</summary>
+        public readonly Dictionary<string, Rect> Bounds = new Dictionary<string, Rect>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>1920x1080 基準の 1 画素が、この描画の何画素か</summary>
+        public double Unit { get { return U; } }
+
+        void Part(DrawingContext dc, string name, Action<DrawingContext> draw)
+        {
+            if (!CollectBounds) { draw(dc); return; }
+            DrawingGroup g = new DrawingGroup();
+            using (DrawingContext c = g.Open()) draw(c);
+            dc.DrawDrawing(g);
+            Rect b = g.Bounds;
+            if (!b.IsEmpty) Bounds[name] = b;
+        }
+
         public void Draw(DrawingContext dc, OverlayState st)
         {
             _bottom.Clear();
             _sectorBox = Rect.Empty;
-            if (L.Shown("map")) DrawMap(dc, st);
-            if (L.Shown("speedometer")) DrawSpeed(dc, st);
-            if (L.Shown("gmeter")) DrawG(dc, st);
-            if (L.Shown("session")) DrawSession(dc, st);
-            if (L.Shown("laptime")) DrawLap(dc, st);
-            if (L.Shown("sector")) DrawSector(dc, st);
-            if (OverlayPrefs.Graph) DrawGraph(dc, st);   // 画面のチェックで出し入れ (ini の [graph] は色・大きさだけ)。セクター表示の上に置くので、その後に
-            if (L.Shown("info")) DrawInfo(dc, st);
+            Bounds.Clear();
+            if (L.Shown("map")) Part(dc, "map", c => DrawMap(c, st));
+            if (L.Shown("speedometer")) Part(dc, "speedometer", c => DrawSpeed(c, st));
+            if (L.Shown("gmeter")) Part(dc, "gmeter", c => DrawG(c, st));
+            if (L.Shown("session")) Part(dc, "session", c => DrawSession(c, st));
+            if (L.Shown("laptime")) Part(dc, "laptime", c => DrawLap(c, st));
+            if (L.Shown("sector")) Part(dc, "sector", c => DrawSector(c, st));
+            if (OverlayPrefs.Graph) Part(dc, "graph", c => DrawGraph(c, st));   // 画面のチェックで出し入れ (ini の [graph] は色・大きさだけ)。セクター表示の上に置くので、その後に
+            if (L.Shown("info")) Part(dc, "info", c => DrawInfo(c, st));
             // 回転計: 解析結果 (log.json の engine・rpm.json) があるときだけ。ini に節が無いレイアウトでも既定の位置に出す
-            if (D.Engine != null && (L.Shown("tacho") || !L.Sections.ContainsKey("tacho"))) DrawTacho(dc, st);
+            if (D.Engine != null && (L.Shown("tacho") || !L.Sections.ContainsKey("tacho"))) Part(dc, "tacho", c => DrawTacho(c, st));
         }
 
         /// <summary>回転計 (横棒) とアクセル (縦棒)。既定は加速度計と情報の上 (少し透過)</summary>
@@ -235,7 +279,7 @@ namespace Tk2Gui
             double rpm = double.IsNaN(st.Rpm) ? 0 : Math.Max(0, st.Rpm);
             double size = 30 * k;
             Text(dc, "RPM", 16 * k, fc, bx, p.Y + pad + size * 0.55, 0, 0.5, 0, Colors.Black);
-            Text(dc, rpm < 100 ? "0" : (Math.Round(rpm / 10) * 10).ToString("#,0", Inv), size, fc, bx + bw, p.Y + pad - 2 * k, 1, 0, Math.Max(1, size / 18), Colors.Black);
+            TextDigits(dc, rpm < 100 ? "0" : (Math.Round(rpm / 10) * 10).ToString("#,0", Inv), size, fc, bx + bw, p.Y + pad - 2 * k, 1, 0, Math.Max(1, size / 18), Colors.Black);
             // 後輪の空転・スライド: 音の回転数が速度の回転数より slip % 以上高い
             double slip = s.Num("slip", 8);
             // (変速機付きは、そのギアで速度から計算した回転数より、加速中に slip % 以上高い)

@@ -1,0 +1,94 @@
+﻿<Window x:Class="Tk2Gui.LayoutEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="表示のレイアウト" Width="1400" Height="820" MinWidth="900" MinHeight="500"
+        FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13" Icon="AppIcon.ico">
+    <Grid Margin="10">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="210"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="300"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 要素の一覧 -->
+        <DockPanel Grid.Column="0" Margin="0,0,8,0">
+            <TextBlock DockPanel.Dock="Top" Text="要素 (チェックで表示)" Margin="0,0,0,4"/>
+            <TextBlock DockPanel.Dock="Bottom" TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,6,0,0"
+                       Text="プレビューの要素をクリックで選び、ドラッグで動かします。矢印キーで 1 ずつ (Shift で 10)。Ctrl+Z で元に戻す。回転計・心拍は、解析の結果があるときだけ出ます。"/>
+            <ListBox Name="ElementList" SelectionChanged="Element_Changed"/>
+        </DockPanel>
+
+        <!-- プレビュー -->
+        <Border Grid.Column="1" Background="#FF101216" BorderBrush="#FF3A3F47" BorderThickness="1">
+            <Viewbox Stretch="Uniform">
+                <Grid Name="Stage" Width="1920" Height="1080" Background="#FF3A3D42" ClipToBounds="True"
+                      MouseLeftButtonDown="Stage_Down" MouseMove="Stage_Move" MouseLeftButtonUp="Stage_Up">
+                    <Image Name="BackImage" Stretch="Fill"/>
+                    <Canvas Name="SubLayer" IsHitTestVisible="False">
+                        <Image Name="SubImage" Stretch="Fill"/>
+                    </Canvas>
+                    <Canvas Name="SubPlaceholder" IsHitTestVisible="False"/>
+                    <Image Name="OverlayImage" Stretch="Fill" IsHitTestVisible="False"/>
+                    <Canvas IsHitTestVisible="False">
+                        <Rectangle Name="SelRect" Stroke="#FFFFD000" StrokeThickness="3" StrokeDashArray="4 3" Visibility="Collapsed"/>
+                    </Canvas>
+                </Grid>
+            </Viewbox>
+        </Border>
+
+        <!-- 項目 -->
+        <ScrollViewer Grid.Column="2" Margin="8,0,0,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Name="SelTitle" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBlock Name="SelNote" TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"/>
+                <Grid Name="AnchorRow" Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="90"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="基準の角" VerticalAlignment="Center"/>
+                    <ComboBox Grid.Column="1" Name="AnchorCombo" SelectionChanged="Anchor_Changed"
+                              ToolTip="x・y を、画面のどの角 (辺) から測るか。変えても見た目の位置は保ちます"/>
+                </Grid>
+                <StackPanel Name="PropPanel"/>
+                <GroupBox Name="CropGroup" Header="サブ動画のトリミング (元の絵の %)" Margin="0,10,0,0" Visibility="Collapsed">
+                    <StackPanel Margin="4">
+                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"
+                                   Text="サブ動画ごとに「ログ名.log.json」へすぐ保存します (レイアウトのファイルには入りません)。Enter で反映、ホイールで 1% ずつ。"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="左" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                            <TextBox Name="CropL" Width="40" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
+                            <TextBlock Text="上" VerticalAlignment="Center" Margin="8,0,3,0"/>
+                            <TextBox Name="CropT" Width="40" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
+                            <TextBlock Text="右" VerticalAlignment="Center" Margin="8,0,3,0"/>
+                            <TextBox Name="CropR" Width="40" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
+                            <TextBlock Text="下" VerticalAlignment="Center" Margin="8,0,3,0"/>
+                            <TextBox Name="CropB" Width="40" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 下 -->
+        <DockPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,8,0,0">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="この要素を既定に" Padding="10,4" Margin="0,0,6,0" Click="ResetOne_Click"
+                        ToolTip="選んでいる要素だけを、既定のレイアウト (overlay_default.ini) の値に戻します (元に戻すで取り消せます)"/>
+                <Button Content="すべて既定に" Padding="10,4" Margin="0,0,12,0" Click="ResetAll_Click"
+                        ToolTip="すべての要素を、既定のレイアウト (overlay_default.ini) の値に戻します (元に戻すで取り消せます)。保存するまでファイルは変わりません"/>
+                <Button Name="UndoButton" Content="元に戻す" Padding="12,4" Click="Undo_Click" ToolTip="Ctrl+Z"/>
+                <Button Content="保存" Padding="16,4" Margin="6,0,0,0" Click="Save_Click"
+                        ToolTip="今のレイアウトのファイルに上書きします。既定のレイアウト (overlay_default.ini) のときは、名前を付けて保存します (発行し直すと既定は上書きされるため)"/>
+                <Button Content="名前を付けて保存..." Padding="12,4" Margin="6,0,0,0" Click="SaveAs_Click"/>
+                <Button Content="閉じる" Padding="12,4" Margin="6,0,0,0" Click="Close_Click"/>
+            </StackPanel>
+            <TextBlock Name="PathText" DockPanel.Dock="Top" FontFamily="Consolas" FontSize="12" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Name="StatusText" Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" Margin="0,2,8,0"/>
+        </DockPanel>
+    </Grid>
+</Window>

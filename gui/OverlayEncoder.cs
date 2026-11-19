@@ -71,8 +71,10 @@ namespace Tk2Gui
         /// renderer は makeRenderer で、このスレッド (STA) の中で作る。
         /// </summary>
         public static void Export(Func<OverlayRenderer> makeRenderer, OverlayData data, FrameRate fr, string outPath, bool png, bool anim, string ffmpeg,
-                                  Action<int, int> progress, CancellationToken cancel)
+                                  Action<int, int> progress, CancellationToken cancel, SubClip sub = null)
         {
+            // サブ動画を含める (表示の下に貼る)。sub.Start = 書き出しの 0 フレームに当たるサブの秒
+            if (sub != null && ffmpeg == null) throw new InvalidOperationException("サブ動画を含めるには ffmpeg が必要です。ffmpeg.exe の場所を指定してください。");
             // 描画は CPU で行うので、複数の STA スレッドに分ける (スレッドごとに描画器を作る)。
             // 論理コアの数だけスレッドを使う (ユーザーの希望)
             int workers = Math.Max(1, Environment.ProcessorCount);
@@ -80,9 +82,18 @@ namespace Tk2Gui
             int total = (int)Math.Floor((data.EndT - data.StartT) * fps) + 1;
             if (anim && !png)
             {
-                ExportSegmented(makeRenderer, data, fr, outPath, ffmpeg, total, workers, progress, cancel);
+                ExportSegmented(makeRenderer, data, fr, outPath, ffmpeg, total, workers, progress, cancel, sub);
                 return;
             }
+            OverlaySubFeed feed = sub != null ? new OverlaySubFeed(ffmpeg, sub, fr, 0) : null;
+            try { ExportPlain(makeRenderer, data, fr, outPath, png, anim, ffmpeg, total, workers, progress, cancel, feed); }
+            finally { if (feed != null) feed.Dispose(); }
+        }
+
+        static void ExportPlain(Func<OverlayRenderer> makeRenderer, OverlayData data, FrameRate fr, string outPath, bool png, bool anim, string ffmpeg,
+                                int total, int workers, Action<int, int> progress, CancellationToken cancel, OverlaySubFeed feed)
+        {
+            double fps = fr.Fps;
             int ahead = workers * 3;                         // 書き込み待ちのフレームの上限 (メモリを使いすぎない)
             byte[][] ready = new byte[total][];
             int written = 0;                                 // ffmpeg へ書き終えた数 (PNG では保存し終えた数)
@@ -110,15 +121,25 @@ namespace Tk2Gui
                                 while (!png && n - written >= ahead && !stop.IsCancellationRequested) Monitor.Wait(gate, 200);
                             stop.Token.ThrowIfCancellationRequested();
                             OverlayState st = data.At(data.StartT + n / fps, fps, trail);
-                            if (png)
+                            string pngPath = png ? Path.Combine(outPath, "frame_" + n.ToString("000000", CultureInfo.InvariantCulture) + ".png") : null;
+                            if (png && feed != null)
                             {
-                                r.SavePng(st, Path.Combine(outPath, "frame_" + n.ToString("000000", CultureInfo.InvariantCulture) + ".png"));
+                                byte[] px = r.RenderBgra(st);
+                                feed.Compose(px, r.W, r.H, feed.Get(n, stop.Token));
+                                SavePngBgra(px, r.W, r.H, pngPath);
+                                int d = Interlocked.Increment(ref done);
+                                if (progress != null && (d % 10 == 0 || d == total)) progress(d, total);
+                            }
+                            else if (png)
+                            {
+                                r.SavePng(st, pngPath);
                                 int d = Interlocked.Increment(ref done);
                                 if (progress != null && (d % 10 == 0 || d == total)) progress(d, total);
                             }
                             else
                             {
                                 byte[] px = (byte[])r.RenderBgra(st).Clone();   // 描画器の配列は次のフレームで上書きされる
+                                if (feed != null) feed.Compose(px, r.W, r.H, feed.Get(n, stop.Token));
                                 lock (gate) { ready[n] = px; Monitor.PulseAll(gate); }
                             }
                         }
@@ -170,8 +191,17 @@ namespace Tk2Gui
         /// 時間で区切って区切りごとに別の ffmpeg で同時に圧縮し、最後に再圧縮なしでつなぐ。
         /// 区切りごとのスレッドが、自分の描画器で描いて自分の ffmpeg へ流す
         /// </summary>
+        /// <summary>BGRA (乗算なし) の画素を PNG に保存</summary>
+        static void SavePngBgra(byte[] px, int w, int h, string path)
+        {
+            System.Windows.Media.Imaging.BitmapSource b = System.Windows.Media.Imaging.BitmapSource.Create(w, h, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, px, w * 4);
+            System.Windows.Media.Imaging.PngBitmapEncoder enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(b));
+            using (FileStream fs = File.Create(path)) enc.Save(fs);
+        }
+
         static void ExportSegmented(Func<OverlayRenderer> makeRenderer, OverlayData data, FrameRate fr, string outPath, string ffmpeg,
-                                    int total, int segs, Action<int, int> progress, CancellationToken cancel)
+                                    int total, int segs, Action<int, int> progress, CancellationToken cancel, SubClip sub)
         {
             if (ffmpeg == null) throw new InvalidOperationException("ffmpeg が見つかりません。PNG 連番で書き出すか、ffmpeg.exe の場所を指定してください。");
             double fps = fr.Fps;
@@ -190,13 +220,16 @@ namespace Tk2Gui
                 parts[k] = part;
                 Thread th = new Thread(() =>
                 {
+                    OverlaySubFeed feed = null;
                     try
                     {
                         OverlayRenderer r = makeRenderer();
                         int trail = r.TrailFrames;
+                        if (sub != null) feed = new OverlaySubFeed(ffmpeg, sub, fr, a);   // 区切りごとに、その先頭から読む
                         WriteMov(r.W, r.H, fr, part, true, ffmpeg, b - a, null, stop.Token, i =>
                         {
                             byte[] px = r.RenderBgra(data.At(data.StartT + (a + i) / fps, fps, trail));
+                            if (feed != null) feed.Compose(px, r.W, r.H, feed.Get(a + i, stop.Token));
                             int d = Interlocked.Increment(ref done);
                             if (progress != null && (d % 10 == 0 || d == total)) progress(d, total);
                             return px;
@@ -204,6 +237,7 @@ namespace Tk2Gui
                     }
                     catch (OperationCanceledException) { }
                     catch (Exception ex) { lock (parts) { if (err == null) err = ex; } stop.Cancel(); }
+                    finally { if (feed != null) feed.Dispose(); }
                 });
                 th.SetApartmentState(ApartmentState.STA);
                 th.IsBackground = true;

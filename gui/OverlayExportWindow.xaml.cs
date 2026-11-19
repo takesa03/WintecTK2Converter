@@ -177,6 +177,30 @@ namespace Tk2Gui
         void Option_LostFocus(object sender, RoutedEventArgs e) { Rebuild(); }
         void Layout_LostFocus(object sender, RoutedEventArgs e) { Rebuild(); }
         void ReloadLayout_Click(object sender, RoutedEventArgs e) { Rebuild(); }
+
+        LayoutEditorWindow _editor;
+
+        /// <summary>レイアウトエディタ。変えるたびにこの画面のプレビュー (と書き出し) に使う</summary>
+        void EditLayout_Click(object sender, RoutedEventArgs e)
+        {
+            if (_editor != null) { _editor.Activate(); return; }
+            if (_data == null || _layout == null) { Status("レイアウトを読めていないので、編集できません。"); return; }
+            FrameRate fr = FpsCombo.SelectedItem as FrameRate ?? FrameRate.All[3];
+            try
+            {
+                _editor = new LayoutEditorWindow(LayoutBox.Text, _data, _data.StartT + TimeSlider.Value, fr.Fps, null, null, l =>
+                {
+                    _layout = l;
+                    int w, h; GetSize(out w, out h);
+                    _preview = new OverlayRenderer(_layout, _data, w, h);
+                    UpdatePreview();
+                }) { Owner = this };
+            }
+            catch (Exception ex) { Status("レイアウトを開けません: " + ex.Message); return; }
+            _editor.Saved += p => { LayoutBox.Text = p; };
+            _editor.Closed += (s, a) => _editor = null;
+            _editor.Show();
+        }
         void Ffmpeg_LostFocus(object sender, RoutedEventArgs e) { }
 
         void BrowseLayout_Click(object sender, RoutedEventArgs e)
@@ -227,13 +251,24 @@ namespace Tk2Gui
             Status("保存しました: " + d.FileName);
         }
 
+        /// <summary>書き出す範囲に重なるサブ動画 (log.json の videos の role = "sub")。無い・枠が show = 0 なら null</summary>
+        SubClip SubFor(string ff, OverlayLayout layout, OverlayData data, int w, int h)
+        {
+            if (_sess == null || string.IsNullOrEmpty(_sess.FilePath)) return null;
+            VideoStore.Entry s = VideoStore.FindSub(_sess.FilePath, data.StartT, data.EndT);
+            if (s == null) return null;
+            VideoInfo vi = FfVideo.Probe(ff, s.Path);
+            return SubClip.Make(s.Path, vi, s.CropOrZero, SubVideoLayout.From(layout), w, h, data.StartT - s.T0, data.EndT - data.StartT);
+        }
+
         async void Export_Click(object sender, RoutedEventArgs e)
         {
             if (_layout == null || _data == null) { Status("レイアウトを読めていません"); return; }
             bool png = FormatCombo.SelectedIndex == 1;
             bool anim = FormatCombo.SelectedIndex == 2;   // QuickTime Animation (可逆・透明部分が多いと小さい)
             string ff = null;
-            if (!png)
+            bool withSub = SubIncludeCheck.IsChecked == true;
+            if (!png || withSub)
             {
                 ff = OverlayEncoder.FindFfmpeg(FfmpegBox.Text);
                 if (ff == null)
@@ -288,13 +323,20 @@ namespace Tk2Gui
                     string path = jobs[j].Value;
                     string head = jobs.Count > 1 ? string.Format(Inv, "{0} / {1} 本目のファイル  ", j + 1, jobs.Count) : "";
                     Stopwatch one = Stopwatch.StartNew();
+                    SubClip sc = null;
+                    if (withSub)
+                    {
+                        string ffx = ff;
+                        sc = await Task.Run(() => SubFor(ffx, layout, data, w, h));
+                        if (sc == null) head += "(サブ動画なし)  ";
+                    }
                     await Task.Run(() => OverlayEncoder.Export(() => new OverlayRenderer(layout, data, w, h), data, fr, path, png, anim, ff,
                         (n, total) => Dispatcher.BeginInvoke(new Action(() =>
                         {
                             Progress.Maximum = total; Progress.Value = n;
                             double el = one.Elapsed.TotalSeconds, rest = n > 0 ? el / n * (total - n) : 0;
                             StatusText.Text = head + string.Format(Inv, "書き出し中 {0} / {1} フレーム  (残り約 {2:0} 秒)", n, total, rest);
-                        })), ct));
+                        })), ct, sc));
                 }
                 if (jobs.Count == 1)
                     Status(string.Format(Inv, "書き出しました ({0:0} 秒): {1}", sw.Elapsed.TotalSeconds, outPath));

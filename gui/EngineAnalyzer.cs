@@ -446,7 +446,7 @@ namespace Tk2Gui
         }
 
         /// <summary>基数 2 の FFT (その場で)</summary>
-        static void Fft(double[] re, double[] im)
+        internal static void Fft(double[] re, double[] im)
         {
             int n = re.Length;
             for (int i = 1, j = 0; i < n; i++)

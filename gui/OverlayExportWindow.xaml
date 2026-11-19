@@ -30,6 +30,8 @@
             <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" Margin="0,0,0,4">
                 <Button Content="参照..." Padding="10,2" Click="BrowseLayout_Click"/>
                 <Button Content="読み直す" Padding="10,2" Margin="6,0,0,0" Click="ReloadLayout_Click"/>
+                <Button Content="編集..." Padding="10,2" Margin="6,0,0,0" Click="EditLayout_Click"
+                        ToolTip="表示の要素の ON/OFF と位置を、プレビューを見ながら直します (サブ動画の枠もここで)"/>
             </StackPanel>
 
             <TextBlock Grid.Row="1" Text="ffmpeg" VerticalAlignment="Center" Margin="0,0,8,4"/>
@@ -62,6 +64,8 @@
                     <ComboBoxItem Content="透明 PNG 連番 (フォルダ)"/>
                     <ComboBoxItem Content="QuickTime Animation (.mov, 透明付き・小さい)"/>
                 </ComboBox>
+                <CheckBox Name="SubIncludeCheck" Content="サブ動画も含める" VerticalAlignment="Center" Margin="16,0,0,0"
+                          ToolTip="走行動画の時刻合わせで登録したサブ動画 (ペダルなど) を、レイアウトの [subvideo] の枠に入れて書き出します (表示の下。音声は入りません)。Resolve 側でサブを別に重ねるときは外したままにします。ffmpeg が必要です"/>
                 <CheckBox Name="GraphCheck" Content="速度のグラフ" VerticalAlignment="Center" Margin="16,0,0,0"                          ToolTip="右下のセクター表示の上に、距離ごとの速度のグラフを出します (ベストの周回を薄い面で背景に、走行中の周回を線で)。走行動画の時刻合わせ・動画で比較と共通の設定です。色・大きさはレイアウトの ini の [graph] 節"/>
             </WrapPanel>
         </Grid>

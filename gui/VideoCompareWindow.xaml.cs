@@ -40,6 +40,12 @@ namespace Tk2Gui
             internal double Offset;                 // 揃える位置: 周回の開始から何秒の所を τ = 0 にするか (セクターの開始で揃えるとき)
             internal double Base { get { return Lap.StartT + Offset; } }    // τ = 0 のログの通算秒
             internal double VideoT(double tau) { return Base + tau - Video.T0; }
+            // サブ動画 (無ければ null)
+            internal VideoStore.Entry Sub;
+            internal VideoInfo SubVi;
+            internal FrameReader SubReader;
+            internal DateTime SubLastSeek;
+            internal double SubT(double tau) { return Base + tau - Sub.T0; }
         }
 
         /// <summary>音声の切れ端。T0 = 先頭が周回の開始から何秒か</summary>
@@ -130,7 +136,8 @@ namespace Tk2Gui
                 CompositionTarget.Rendering -= OnRender;
                 _cancel.Cancel();
                 if (_audio != null) _audio.Dispose();
-                foreach (Lane l in _lanes) { l.Pane.StopOverlay(); if (l.Reader != null) l.Reader.Dispose(); }
+                foreach (Lane l in _lanes) { l.Pane.StopOverlay(); if (l.Reader != null) l.Reader.Dispose(); if (l.SubReader != null) l.SubReader.Dispose(); }
+                if (_editor != null) { try { _editor.Close(); } catch (Exception) { } }
                 if (_map != null) { try { _map.Close(); } catch (Exception) { } }
                 RestoreOrigin();
             };
@@ -163,6 +170,7 @@ namespace Tk2Gui
                     }
                 }
                 catch (Exception ex) { ln.Pane.Message = ex.Message; }
+                await OpenSubAsync(ln);
             }
             CompositionTarget.Rendering += OnRender;
             SeekAll(0);
@@ -226,6 +234,11 @@ namespace Tk2Gui
                 l.Shown = double.NaN;
                 double vt = l.VideoT(_tau);
                 if (vt >= 0 && vt < l.Vi.Duration) { l.Reader.Seek(vt); l.LastSeek = DateTime.Now; }
+                if (l.SubReader != null)
+                {
+                    double st = l.SubT(_tau);
+                    if (st >= 0 && st < l.SubVi.Duration) { l.SubReader.Seek(st); l.SubLastSeek = DateTime.Now; }
+                }
             }
             UpdateInfo();
         }
@@ -262,6 +275,7 @@ namespace Tk2Gui
                     l.Reader.Recycle(f);
                     changed = true;
                 }
+                RenderSub(l, double.IsNaN(l.Shown) ? _tau : l.Shown);
             }
             if (changed || _clock.Playing) UpdateInfo();
         }

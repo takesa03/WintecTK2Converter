@@ -54,6 +54,8 @@
                         <CheckBox Name="OverlayCheck" Content="動画素材と同じ表示を重ねる" IsChecked="True" Margin="0,4,0,0" Checked="Overlay_Changed" Unchecked="Overlay_Changed"/>
                         <CheckBox Name="GraphCheck" Content="速度のグラフ (焼き込みにも)" Margin="0,4,0,0"
                                   ToolTip="右下のセクター表示の上に、距離ごとの速度のグラフを出します。動画素材の書き出し・動画で比較と共通の設定です (どこかで変えるとほかの画面にも反映)"/>
+                        <Button Name="EditLayoutButton" Content="表示の編集..." Padding="10,3" Margin="0,6,0,0" HorizontalAlignment="Left" Click="EditLayout_Click"
+                                ToolTip="今のコマの上で、表示の要素の ON/OFF と位置、サブ動画の枠とトリミングを直します"/>
                     </StackPanel>
                 </GroupBox>
 
@@ -70,6 +72,54 @@
                             <Button Name="EngineButton" Content="音声を解析" Padding="12,4" Click="Engine_Click"
                                     ToolTip="解析が終わると、結果を確かめる図の画面が開きます (セッション 10 分で数十秒)"/>
                             <TextBlock Name="EngineText" VerticalAlignment="Center" Margin="8,0,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+                <GroupBox Header="サブ動画 (ペダルなど別のカメラ)" Margin="0,10,0,0">
+                    <StackPanel Margin="4">
+                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"
+                                   Text="走行動画に別のカメラの動画を小さく重ねます (再生ではサブの音声は使いません)。先に上で走行動画の時刻を合わせてから開いてください。ずれ・トリミングは変えるとすぐ「ログ名.log.json」に保存します。枠の位置・大きさはレイアウトの [subvideo] です。"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Name="SubOpenButton" Content="サブ動画を開く..." Padding="12,4" Click="SubOpen_Click"
+                                    ToolTip="走行動画と同じ時間に撮った別のカメラの動画を選びます。はじめは「2 本が同時に録り始めた」として重ねます"/>
+                            <Button Name="SubRemoveButton" Content="外す" Padding="8,4" Margin="6,0,0,0" Click="SubRemove_Click"
+                                    ToolTip="このサブ動画の登録を外します (動画のファイルは消しません)"/>
+                            <CheckBox Name="SubCheck" Content="重ねる" IsChecked="True" Margin="10,0,0,0" VerticalAlignment="Center" Click="SubCheck_Click"/>
+                        </StackPanel>
+                        <TextBlock Name="SubText" Margin="0,6,0,4" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12"/>
+                        <Button Name="SubAudioButton" Content="音声で合わせる" Padding="10,3" HorizontalAlignment="Left" Margin="0,0,0,4" Click="SubAudio_Click"
+                                    ToolTip="メインの今の位置の前後 60 秒の音声を、サブの今のずれの前後 5 分の中で探します (エンジン音などの大きさの変化の形で比べます)。&#x0A;合わなければ、エンジンの音がはっきりしている所 (走行中) に動かしてからもう一度押してください"/>
+                        <DockPanel Margin="0,0,0,4">
+                            <TextBlock Text="候補" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <ComboBox Name="SubCandCombo" VerticalAlignment="Center" FontFamily="Consolas" FontSize="12" SelectionChanged="SubCand_Changed"
+                                      ToolTip="音声で合わせた候補 (相関の高い順)。選ぶとそのずれにします。&#x0A;際立ち = 山の高さが全体のばらつきの何倍か (10 以上ならまず確か。5 未満は疑わしい)"/>
+                        </DockPanel>
+                        <DockPanel Margin="0,0,0,4">
+                            <TextBlock Text="ずれ" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock DockPanel.Dock="Right" Text="秒" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                            <TextBox Name="SubOffsetBox" VerticalAlignment="Center" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubOffset_LostFocus"
+                                     ToolTip="サブの時刻 = メインの時刻 + ずれ。サブが先に録り始めていれば正、後なら負&#x0A;入力して Enter で反映"/>
+                        </DockPanel>
+                        <TextBlock Text="サブ動画をメインに対して動かす" Margin="0,2,0,2" FontSize="12"/>
+                        <WrapPanel>
+                            <Button Content="−1 秒" Tag="-1" Padding="6,2" Margin="0,0,4,4" Click="SubNudge_Click"/>
+                            <Button Content="−0.1" Tag="-0.1" Padding="6,2" Margin="0,0,4,4" Click="SubNudge_Click"/>
+                            <Button Content="−1 コマ" Tag="-f" Padding="6,2" Margin="0,0,4,4" Click="SubNudge_Click" ToolTip="サブ動画の 1 コマ"/>
+                            <Button Content="＋1 コマ" Tag="f" Padding="6,2" Margin="0,0,4,4" Click="SubNudge_Click" ToolTip="サブ動画の 1 コマ"/>
+                            <Button Content="＋0.1" Tag="0.1" Padding="6,2" Margin="0,0,4,4" Click="SubNudge_Click"/>
+                            <Button Content="＋1 秒" Tag="1" Padding="6,2" Margin="0,0,4,4" Click="SubNudge_Click"/>
+                        </WrapPanel>
+                        <TextBlock Text="トリミング (元の絵の %。Enter で反映)" Margin="0,4,0,2" FontSize="12"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="左" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                            <TextBox Name="SubCropL" Width="38" Tag="0" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"/>
+                            <TextBlock Text="上" VerticalAlignment="Center" Margin="8,0,3,0"/>
+                            <TextBox Name="SubCropT" Width="38" Tag="1" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"/>
+                            <TextBlock Text="右" VerticalAlignment="Center" Margin="8,0,3,0"/>
+                            <TextBox Name="SubCropR" Width="38" Tag="2" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"/>
+                            <TextBlock Text="下" VerticalAlignment="Center" Margin="8,0,3,0"/>
+                            <TextBox Name="SubCropB" Width="38" Tag="3" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"
+                                     ToolTip="マウスのホイールで 1% ずつ増減"/>
                         </StackPanel>
                     </StackPanel>
                 </GroupBox>
@@ -112,7 +162,7 @@
                                   ToolTip="選んだ周回のうち、続いている周回 (例: L3・L4・L5) は 1 本にまとめ、間が空いた所で別の動画に分けます。前後の余白は、まとめた範囲の最初と最後にだけ付けます。外すと 1 周ずつ切り出します"/>
                         <CheckBox Name="AudioCheck" Content="音声も入れる" IsChecked="True" Margin="0,6,0,0"/>
                         <CheckBox Name="BurnCheck" Content="速度・タイム・セクターを焼き込む" IsChecked="False" Margin="0,6,0,0"
-                                  ToolTip="動画素材の書き出しと同じ表示 (同じレイアウトの設定) を映像に重ねて切り出します。表示は後から消せません。書き出しに時間がかかります。焼き込んだ動画は「動画で比較」には使いません (元の動画を使います)"/>
+                                  ToolTip="動画素材の書き出しと同じ表示 (同じレイアウトの設定) を映像に重ねて切り出します。サブ動画を開いていて「重ねる」が ON なら、サブ動画も同じ位置に入れます。表示は後から消せません。書き出しに時間がかかります。焼き込んだ動画は「動画で比較」には使いません (元の動画を使います)"/>
                         <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,6,0,6"
                                    Text="元の動画と同じフォルダに「元の名前_S6_L3.mp4」のように保存します (H.264、再エンコード)。切り出した動画も時刻合わせ済みとして登録するので、比較画面でそのまま使えます。焼き込むときは「元の名前_S6_L3_overlay.mp4」になります。まとめたときは「元の名前_S6_L3-L5.mp4」です。"/>
                         <StackPanel Orientation="Horizontal">

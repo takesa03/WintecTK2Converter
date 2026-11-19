@@ -145,7 +145,7 @@ namespace Tk2Gui
                 }
                 catch (Exception ex) { notes.Add("解析できません: " + System.IO.Path.GetFileName(log) + " (" + ex.Message + ")"); continue; }
                 if (res == null) continue;
-                List<VideoStore.Entry> vids = VideoStore.Load(log).Where(v => !v.Overlay && File.Exists(v.Path)).ToList();
+                List<VideoStore.Entry> vids = VideoStore.LoadMain(log).Where(v => !v.Overlay && File.Exists(v.Path)).ToList();
                 List<HeartStore.Entry> hearts = LogFile.Load(log).Heart ?? new List<HeartStore.Entry>();
                 string folder = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(log));
                 for (int si = 0; si < res.Sessions.Count; si++)
@@ -181,7 +181,7 @@ namespace Tk2Gui
         /// <summary>この周回が映っている動画の候補 (既定 = VideoStore.Find が選ぶものを先頭に)。表示を焼き込んだものは除く</summary>
         public static List<VideoStore.Entry> VideosFor(LibLap l)
         {
-            List<VideoStore.Entry> all = VideoStore.Load(l.Log).Where(v => !v.Overlay && File.Exists(v.Path) && v.T0 < l.Lap.EndT + 5 && v.EndT > l.Lap.StartT - 5).ToList();
+            List<VideoStore.Entry> all = VideoStore.LoadMain(l.Log).Where(v => !v.Overlay && File.Exists(v.Path) && v.T0 < l.Lap.EndT + 5 && v.EndT > l.Lap.StartT - 5).ToList();
             VideoStore.Entry def = VideoStore.Find(l.Log, l.Lap.StartT - 5, l.Lap.EndT + 5);
             return all.OrderBy(v => v == def || (def != null && v.Path == def.Path) ? 0 : 1)
                       .ThenBy(v => v.T0 <= l.Lap.StartT && v.EndT >= l.Lap.EndT ? 0 : 1).ThenBy(v => v.Duration).ToList();

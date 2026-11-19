@@ -132,14 +132,49 @@ namespace Tk2Gui
                                       OverlayFrameSource overlay, int w, int h, double fps,
                                       Action<double> progress, CancellationToken ct)
         {
+            ExportClip(ffmpeg, path, start, dur, outPath, audio, overlay, w, h, fps, null, progress, ct);
+        }
+
+        /// <summary>
+        /// sub を渡すと、サブ動画 (ペダルなど) をトリミング・縮小して、表示の下 (映像の上) に重ねる。
+        /// 入力は 0 = メイン、1 = サブ、2 = 表示 (overlay があるとき、標準入力)。サブの音声は使わない
+        /// </summary>
+        public static void ExportClip(string ffmpeg, string path, double start, double dur, string outPath, bool audio,
+                                      OverlayFrameSource overlay, int w, int h, double fps, SubClip sub,
+                                      Action<double> progress, CancellationToken ct)
+        {
             double ss = Math.Max(0, start);
             string vin = "", vmap = "-map 0:v:0";
+            List<string> fc = new List<string>();
+            string cur = "0:v";
+            if (sub != null)
+            {
+                // サブの開始が負 (切り出しの 0 秒にまだ録り始めていない) なら、その分だけ後ろへずらす
+                vin += sub.Start >= 0
+                    ? string.Format(Inv, "-ss {0} -i {1} ", S(sub.Start), Q(sub.Path))
+                    : string.Format(Inv, "-itsoffset {0} -i {1} ", S(-sub.Start), Q(sub.Path));
+                string sv = string.Format(Inv, "[1:v]crop={0}:{1}:{2}:{3},scale={4}:{5}:flags=bicubic", sub.CW, sub.CH, sub.CX, sub.CY, sub.DW, sub.DH);
+                if (sub.Opacity < 0.999) sv += string.Format(Inv, ",format=yuva420p,colorchannelmixer=aa={0:0.###}", sub.Opacity);
+                fc.Add(sv + "[s]");
+                string en = string.Format(Inv, "between(t,{0},{1})", S(Math.Max(0, sub.ClipFrom)), S(sub.ClipTo));
+                if (sub.Border > 0)
+                {
+                    fc.Add(string.Format(Inv, "[{0}]drawbox=x={1}:y={2}:w={3}:h={4}:color={5}:t={6}:enable='{7}'[b]",
+                        cur, sub.X - sub.Border, sub.Y - sub.Border, sub.DW + 2 * sub.Border, sub.DH + 2 * sub.Border, sub.BorderColor, sub.Border, en));
+                    cur = "b";
+                }
+                fc.Add(string.Format(Inv, "[{0}][s]overlay={1}:{2}:eof_action=pass:enable='{3}'[m]", cur, sub.X, sub.Y, en));
+                cur = "m";
+            }
             if (overlay != null)
             {
-                vin = string.Format(Inv, "-f rawvideo -pix_fmt bgra -s {0}x{1} -framerate {2} -i pipe:0 ", w, h, fps.ToString("0.######", Inv));
+                int oi = sub != null ? 2 : 1;
+                vin += string.Format(Inv, "-f rawvideo -pix_fmt bgra -s {0}x{1} -framerate {2} -i pipe:0 ", w, h, fps.ToString("0.######", Inv));
                 // 表示は映像と同じ大きさで描くので、そのまま左上に合わせて重ねる
-                vmap = "-filter_complex \"[0:v][1:v]overlay=0:0:format=auto:eof_action=pass,format=yuv420p[v]\" -map \"[v]\"";
+                fc.Add(string.Format(Inv, "[{0}][{1}:v]overlay=0:0:format=auto:eof_action=pass,format=yuv420p[v]", cur, oi));
             }
+            else if (sub != null) fc.Add("[" + cur + "]format=yuv420p[v]");
+            if (fc.Count > 0) vmap = "-filter_complex \"" + string.Join(";", fc) + "\" -map \"[v]\"";
             string args = string.Format(Inv,
                 "-hide_banner -y -ss {0} -i {1} {6}-t {2} {7} {3} -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p " +
                 "{4} -movflags +faststart -progress pipe:1 -nostats {5}",
@@ -213,6 +248,47 @@ namespace Tk2Gui
     /// 映像を縮小した BGRA のコマで読み続ける。Seek で読み始めの時刻を決め、Get(t) で t 以前で最も新しいコマを受け取る。
     /// 読み出しは別スレッド (ffmpeg の標準出力)。先読みは数コマだけ
     /// </summary>
+    /// <summary>
+    /// 切り出しに焼き込むサブ動画 (FfVideo.ExportClip に渡す)。位置・大きさは出力の画素 (偶数に丸めてある)
+    /// </summary>
+    public sealed class SubClip
+    {
+        public string Path;
+        public double Start;            // 切り出しの 0 秒に当たるサブの秒 (負 = まだ録り始めていない)
+        public double ClipFrom, ClipTo; // サブが映っている切り出しの秒の範囲
+        public int CX, CY, CW, CH;      // 元の絵のトリミング (画素)
+        public int X, Y, DW, DH;        // 出力の画面での位置と大きさ
+        public int Border;              // 枠線の太さ (画素。0 で無し)
+        public string BorderColor;      // ffmpeg の色 (0xRRGGBB@a)
+        public double Opacity = 1;
+
+        static int Even(double v) { return Math.Max(2, (int)Math.Round(v / 2) * 2); }
+
+        /// <summary>
+        /// 出力 W x H、切り出しの長さ dur、切り出しの 0 秒に当たるサブの秒 start から作る。
+        /// 枠が show = 0、またはこの切り出しにサブが映らないなら null
+        /// </summary>
+        public static SubClip Make(string path, VideoInfo vi, double[] crop, SubVideoLayout lay, int W, int H, double start, double dur)
+        {
+            if (lay == null || !lay.Show || vi == null || vi.Width <= 0) return null;
+            double from = -start, to = vi.Duration - start;          // 切り出しの秒で
+            if (to <= 0 || from >= dur) return null;
+            System.Windows.Rect src = SubVideoLayout.Source(vi.Width, vi.Height, crop);
+            System.Windows.Rect dst = lay.Dest(W, H, vi.Width, vi.Height, crop);
+            SubClip c = new SubClip { Path = path, Start = start, ClipFrom = from, ClipTo = to, Opacity = lay.Opacity };
+            c.CW = Math.Min(Even(src.Width), vi.Width - vi.Width % 2); c.CH = Math.Min(Even(src.Height), vi.Height - vi.Height % 2);
+            c.CX = Math.Max(0, Math.Min(vi.Width - c.CW, (int)Math.Round(src.X))); c.CY = Math.Max(0, Math.Min(vi.Height - c.CH, (int)Math.Round(src.Y)));
+            c.DW = Even(dst.Width); c.DH = Even(dst.Height);
+            c.X = (int)Math.Round(dst.X); c.Y = (int)Math.Round(dst.Y);
+            c.Border = lay.Border > 0 ? Math.Max(1, (int)Math.Round(lay.Border * H / 1080.0)) : 0;
+            System.Windows.Media.Color bc = lay.BorderColor;
+            c.BorderColor = string.Format(Inv, "0x{0:X2}{1:X2}{2:X2}@{3:0.###}", bc.R, bc.G, bc.B, bc.A / 255.0);
+            return c;
+        }
+
+        static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
+    }
+
     public sealed class FrameReader : IDisposable
     {
         public sealed class Frame { public double T; public byte[] Px; }

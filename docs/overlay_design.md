@@ -80,6 +80,11 @@ AviUtl + VSD for GPS（`standard_l3` スキン）の表示を参考にし、DaVi
 - 部品を別の部品の下に続けて置ける: `below = session`（その部品の下端から `y` だけ空けて置く。ラップ表はセッション情報の下に続ける。セッション情報を非表示にしたら、ラップ表は画面の端から `y` の位置に上がる）
 - 追加する節: `[session]`（`size` `color` `jfont`。ドライバー名が空ならその部分を出さない。Impact には日本語の字形が無いので、日本語の名前は `jfont`（既定 Meiryo UI など）で描く。WPF ならフォントの代替指定 `"Impact, Meiryo UI"` で自動で切り替わる）、`[sector]`（`size` `laps` `total` `best` `plus` `minus`）、`[map]` に `gates = 1`, `gatecolor`, `controlcolor`, `gatewidth`（線はコース定義の中心線。現在位置はログの位置をそのまま打つ）
 - 既定の ini を exe と同じフォルダに置き、書き出し画面で別の ini を選べるようにする。最後に使った ini は Settings に保存
+- 追記（1.8.0、2026-11-19。設計は `docs/subvideo_design.md`）:
+  - `[subvideo]`（サブ動画の枠。`show` `anchor` `x` `y` `width` `height` `align` `border` `bordercolor` `opacity`）。トリミングはサブ動画ごとに log.json。重なり順は メインの映像 → サブ動画 → ほかの表示
+  - 表示のレイアウトエディタ（`gui/LayoutEditorWindow`）。書き出し・時刻合わせ・動画で比較の 3 画面から開く。ini の書き換えは注釈・桁揃え・BOM・CRLF を保ち、変えた行だけを直す（`OverlayLayout.Set` / `Save`）。overlay_default.ini は書き換えず、最初の保存は別名（既定 overlay_user.ini）
+  - 透明の素材の「サブ動画も含める」（既定 OFF）: `gui/OverlaySubFeed.cs` が ffmpeg でサブを crop → 枠の大きさ → 出力の fps にして順に読み、表示の画素の下に敷く（乗算なしの BGRA で「表示が上」の合成）。QuickTime Animation の区切りごとの書き出しは、区切りごとに先頭から読む
+  - 回転計の数字は 1 文字ずつ一番広い数字の幅の枠に置く（Impact の数字は幅がまちまちで、右揃えだと値が変わるたびに左右に揺れたため）
 
 ## 4. 本体への組み込み
 

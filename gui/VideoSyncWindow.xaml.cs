@@ -78,6 +78,7 @@ namespace Tk2Gui
             st.Check(BurnCheck, "Burn");
             st.Check(MergeCheck, "Merge");
             st.Check(OverlayCheck, "Overlay");
+            st.Check(SubCheck, "Sub");
             OverlayPrefs.BindGraph(GraphCheck, () => _pane.RefreshOverlay());   // 速度のグラフ (書き出し・動画で比較と共通)
             FillVehicles();
             Settings.Track(this, "VideoSyncWindow", () => { st.SaveAll(); Settings.Set("VideoSync.VehicleName", SelectedVehicle()); });
@@ -89,6 +90,7 @@ namespace Tk2Gui
             }
             catch (Exception ex) { Status("表示を重ねる準備ができません: " + ex.Message); }
             UpdateFitText();
+            UpdateSubText();
 
             if (_ffmpeg == null)
             {
@@ -102,10 +104,19 @@ namespace Tk2Gui
 
             PreviewKeyDown += OnKey;
             Loaded += (s, e) => CompositionTarget.Rendering += OnRender;
-            Closed += (s, e) => { CompositionTarget.Rendering -= OnRender; if (_cancel != null) _cancel.Cancel(); _pane.StopOverlay(); if (_reader != null) _reader.Dispose(); };
+            Closed += (s, e) => { CompositionTarget.Rendering -= OnRender; if (_cancel != null) _cancel.Cancel(); _pane.StopOverlay(); if (_reader != null) _reader.Dispose(); if (_subReader != null) _subReader.Dispose(); };
         }
 
         void Status(string s) { StatusText.Text = s; }
+
+        /// <summary>重ねる表示を今のレイアウトで描き直す (動画を開いたとき・レイアウトを変えたとき)</summary>
+        void RestartOverlay()
+        {
+            if (_data == null || _vi == null || _layout == null) return;
+            OverlayLayout lay = _layout; OverlayData d = _data; double fps = _vi.Fps;
+            _pane.StartOverlay((w, h) => new OverlayRenderer(lay, d, w, h), (r, t) => d.At(t, fps, r.TrailFrames), (double)_vi.Width / _vi.Height);
+            _pane.RefreshOverlay();
+        }
 
         // ---------------- 動画の選択 ----------------
 
@@ -115,7 +126,7 @@ namespace Tk2Gui
             _fill = true;
             VideoCombo.Items.Clear();
             // このセッションに重なる動画を先に
-            foreach (VideoStore.Entry v in VideoStore.Load(_log).OrderByDescending(v => v.T0 < _sess.EndT + 60 && v.EndT > _sess.StartT - 60).ThenBy(v => v.T0))
+            foreach (VideoStore.Entry v in VideoStore.LoadMain(_log).OrderByDescending(v => v.T0 < _sess.EndT + 60 && v.EndT > _sess.StartT - 60).ThenBy(v => v.T0))
             {
                 string txt = Path.GetFileName(v.Path) + "   (" + VideoKit.Local(v.T0).Substring(0, 8) + " 〜 " + VideoKit.Local(v.EndT).Substring(0, 8) + ")" + (File.Exists(v.Path) ? "" : "  ※ ファイルがありません");
                 VideoCombo.Items.Add(new ComboBoxItem { Content = txt, Tag = v.Path });
@@ -163,6 +174,7 @@ namespace Tk2Gui
         {
             _clock.Pause(); PlayButton.Content = "▶ 再生";
             if (_reader != null) { _reader.Dispose(); _reader = null; }
+            CloseSub();
             _pane.ClearFrame();
             VideoStore.Entry en = VideoStore.Get(_log, path);
             if (en == null) return;
@@ -176,16 +188,13 @@ namespace Tk2Gui
             if (Math.Abs(en.Duration - _vi.Duration) > 0.01) { en.Duration = _vi.Duration; VideoStore.Put(_log, en); }
             _pane.Message = null;
             _reader = new FrameReader(_ffmpeg, path, _vi, 1280);
-            if (_data != null)
-            {
-                OverlayLayout lay = _layout; OverlayData d = _data; double fps = _vi.Fps;
-                _pane.StartOverlay((w, h) => new OverlayRenderer(lay, d, w, h), (r, t) => d.At(t, fps, r.TrailFrames), (double)_vi.Width / _vi.Height);
-            }
+            RestartOverlay();
             _sliderBusy = true; TimeSlider.Maximum = _vi.Duration; _sliderBusy = false;
             // はじめは、最初の周回の開始の所
             double t = _laps.Count > 0 ? _laps[0].StartT - _t0 : 0;
             SeekTo(Math.Max(0, Math.Min(_vi.Duration - 0.1, t)));
             UpdateSyncText();
+            LoadSubFor();
         }
 
         // ---------------- 再生 ----------------
@@ -198,6 +207,7 @@ namespace Tk2Gui
             _shownT = double.NaN;
             _reader.Seek(t);
             _lastSeek = DateTime.Now;
+            SeekSub();
             UpdateInfo();
         }
 
@@ -220,6 +230,7 @@ namespace Tk2Gui
                 UpdateInfo();
             }
             else if (_clock.Playing) UpdateInfo();
+            RenderSub();
         }
 
         void UpdateInfo()
@@ -297,7 +308,9 @@ namespace Tk2Gui
 
         void SetT0(double t0, string why)
         {
+            double old = _t0;
             _t0 = t0;
+            SubFollowMain(old);
             VideoStore.Entry en = VideoStore.Get(_log, _video);
             if (en != null) { en.T0 = t0; VideoStore.Put(_log, en); }
             UpdateSyncText();
@@ -364,6 +377,9 @@ namespace Tk2Gui
             }
             VideoInfo vi = _vi;
             string src = _video; double t0 = _t0; double dur = _vi.Duration;
+            // サブ動画は表示を焼き込むときだけ入れる (焼き込まない切り出しは比較の画面で使い、表示もサブも上から重ねるため)
+            bool withSub = burn && _subPath != null && SubCheck.IsChecked == true && SubLayout().Show;
+            string subPath = _subPath; VideoInfo subVi = _subVi; double subT0 = _subT0; double[] subCrop = (double[])_subCrop.Clone(); SubVideoLayout subLay = SubLayout();
             string dir = Path.GetDirectoryName(src), stem = Path.GetFileNameWithoutExtension(src);
             // 切り出す単位: 1 周ずつ、または続いている周回 (前の周回の終わり = 次の周回の始まり) をひとまとめ
             var groups = new List<List<LapRecord>>();
@@ -396,7 +412,7 @@ namespace Tk2Gui
             CancellationToken ct = _cancel.Token;
             ClipButton.IsEnabled = false; CancelButton.IsEnabled = true;
             string ff = _ffmpeg;
-            int done = 0;
+            int done = 0, subUsed = 0;
             try
             {
                 for (int k = 0; k < jobs.Count; k++)
@@ -405,6 +421,7 @@ namespace Tk2Gui
                     int kk = k;
                     Status(string.Format(Inv, "切り出し中 ({0}/{1}): {2}", k + 1, jobs.Count, Path.GetFileName(j.Item4)));
                     Action<double> prog = p => Dispatcher.BeginInvoke(new Action(() => Progress.Value = (kk + p) / jobs.Count));
+                    string subLabel = " (表示入り)";
                     if (burn)
                     {
                         // その周回 (走行) を中心にした表示を、映像と同じ大きさ・コマ数で描いて重ねる
@@ -415,20 +432,23 @@ namespace Tk2Gui
                         double fps = vi.Fps, clipT0 = t0 + j.Item2;
                         int total = (int)Math.Ceiling(j.Item3 * fps) + 1;
                         int w = vi.Width, h = vi.Height;
+                        SubClip sc = withSub ? SubClip.Make(subPath, subVi, subCrop, subLay, w, h, clipT0 - subT0, j.Item3) : null;
+                        if (sc != null) subUsed++;
                         await Task.Run(() =>
                         {
                             using (OverlayFrameSource ov = new OverlayFrameSource(() => new OverlayRenderer(layout, d, w, h),
                                        (r, n) => d.At(clipT0 + n / fps, fps, r.TrailFrames), total, ct))
-                                FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio, ov, w, h, fps, prog, ct);
+                                FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio, ov, w, h, fps, sc, prog, ct);
                         });
+                        if (sc != null) subLabel = " (表示・サブ動画入り)";
                     }
                     else
                         await Task.Run(() => FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio, prog, ct));
-                    VideoStore.Put(_log, new VideoStore.Entry { Path = j.Item4, T0 = t0 + j.Item2, Duration = j.Item3, ClipOf = src, Label = j.Item5 + (burn ? " (表示入り)" : ""), Overlay = burn });
+                    VideoStore.Put(_log, new VideoStore.Entry { Path = j.Item4, T0 = t0 + j.Item2, Duration = j.Item3, ClipOf = src, Label = j.Item5 + (burn ? subLabel : ""), Overlay = burn });
                     done++;
                 }
                 Progress.Value = 1;
-                Status(string.Format(Inv, "{0} 本を切り出しました ({1})。", done, dir) + (skipped.Count > 0 ? "  動画に映っていない周回: " + string.Join(", ", skipped) : ""));
+                Status(string.Format(Inv, "{0} 本を切り出しました ({1})。", done, dir) + (subUsed > 0 ? string.Format(Inv, "サブ動画は {0} 本に入れました。", subUsed) : "") + (skipped.Count > 0 ? "  動画に映っていない周回: " + string.Join(", ", skipped) : ""));
             }
             catch (OperationCanceledException) { Status(string.Format(Inv, "中止しました ({0} 本は切り出し済み)。", done)); }
             catch (Exception ex)
