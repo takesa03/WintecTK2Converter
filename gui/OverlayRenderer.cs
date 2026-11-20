@@ -447,17 +447,19 @@ namespace Tk2Gui
         {
             OverlaySection s = L["session"];
             double size = s.Num("size", 30) * U;
-            string head = D.Def.IsGymkhana && st.HeatNo > 0 ? "Heat " + st.HeatNo.ToString(Inv) : "Session " + st.SessionNo.ToString(Inv);
-            string t = head + (string.IsNullOrWhiteSpace(st.Driver) ? "" : "   Driver " + st.Driver.Trim());
-            FormattedText ft = Ft(t, size, Colors.White);
-            double w = ft.WidthIncludingTrailingWhitespace;
+            // ドライバー名と心拍だけ (セッション番号・Heat はラップタイムの先頭の行に出す)
+            string t = string.IsNullOrWhiteSpace(st.Driver) ? "" : "Driver " + st.Driver.Trim();
+            FormattedText ft = Ft(t.Length > 0 ? t : " ", size, Colors.White);
+            double w = t.Length > 0 ? ft.WidthIncludingTrailingWhitespace : 0;
             // 心拍: 心拍 (log.json の heart) があるときだけ、ドライバー名の右にハートと 3 桁の数字。
             // 幅はいつも取っておく (記録の途切れで文字の位置が動かないように)
             bool heart = D.Heart != null && (L.Shown("heart") || !L.Sections.ContainsKey("heart"));
             double cell = Cell(size), hw = size * 0.85, gap = size * 0.45, hwAll = heart ? gap + hw + size * 0.2 + cell * 3 : 0;
+            if (w + hwAll <= 0) { _bottom.Remove("session"); return; }   // 出すものが無い (ラップタイムは画面の端から)
             Point p = Place(s, w + hwAll, size);
+            PanelBack(dc, s, new Rect(p.X, p.Y, w + hwAll, ft.Height));
             double sw = Math.Max(1, size / 18);
-            Text(dc, t, size, s.Col("color", "#FFFFFF"), p.X + w, p.Y, 1, 0, sw, Colors.Black);
+            if (t.Length > 0) Text(dc, t, size, s.Col("color", "#FFFFFF"), p.X + w, p.Y, 1, 0, sw, Colors.Black);
             if (heart && !double.IsNaN(st.HeartRate)) DrawHeart(dc, st, p.X + w + gap, p.Y + ft.Height / 2, hw, size, cell, p.X + w + hwAll, p.Y, sw);
             _bottom["session"] = p.Y + size * 1.1;
         }
@@ -496,7 +498,9 @@ namespace Tk2Gui
             double size = s.Num("size", 34) * U, cell = Cell(size), lh = size * 1.1, sw = Math.Max(1, size / 18);
             int n = Math.Max(0, s.Int("laps", 3));
             bool gym = D.Def.IsGymkhana;   // ジムカーナ: 1 本ずつの素材なので、ベストと履歴の行は出さない (タイムと差分だけ)
-            double w = cell * 14, h = gym ? lh * 2 : lh * (4 + n);
+            // 先頭の行にセッション番号。ジムカーナは左の周回名が Heat なので出さない
+            bool head = !gym && s.Bool("session", true);
+            double w = cell * 14, h = (gym ? lh * 2 : lh * (4 + n)) + (head ? lh : 0);
             Point p = Place(s, w, h);
             double R = p.X + w, y = p.Y;
             _lapRight = R;
@@ -510,6 +514,12 @@ namespace Tk2Gui
             }
             Color col = s.Col("color", "#FFFFFF"), best = s.Col("best", "#00FFFF"), plus = s.Col("plus", "#FF0000"), minus = s.Col("minus", "#4080FF");
 
+            if (head)
+            {
+                string ht = "Session " + st.SessionNo.ToString(Inv);
+                Mono(dc, ht, size, cell, R, y, col, sw);
+                y += lh;
+            }
             Mono(dc, st.LapTime, size, cell, R, y, col, sw);
             Mono(dc, "Time", size, cell, R - cell * 9, y, col, sw);
             if (!string.IsNullOrEmpty(st.LapName))     // 枠の左にはみ出して出す (タイムの欄の位置は変えない)
@@ -535,6 +545,9 @@ namespace Tk2Gui
 
         Rect _sectorBox = Rect.Empty;   // このフレームのセクター表示の枠 (グラフをその上に置くため)
 
+        /// <summary>このフレームで描いたグラフの枠 (画素)。描かなければ Empty (レイアウトエディタが、指定を外すときに大きさを保つため)</summary>
+        public Rect GraphRect { get; private set; }
+
         /// <summary>
         /// 距離ごとの速度のグラフ。その時点のベストの周回を透過の面と線で背景に、走行中の周回を線で伸ばしていく
         /// (ラインを通ると消えて描き直す)。既定はセクター表示の上 (above = sector)、右上のラップタイムには重ねない
@@ -543,6 +556,7 @@ namespace Tk2Gui
         {
             double span = D.GraphSpan;
             if (!(span > 0) || (st.GraphBest == null && st.GraphCur == null)) return;
+            GraphRect = Rect.Empty;
             OverlaySection s = L["graph"];
             bool gym = D.Def.IsGymkhana;
             double w = s.Num("width", 0) * U, h = s.Num("height", 220) * U;
@@ -560,6 +574,7 @@ namespace Tk2Gui
                 h = bottom - p.Y;
             }
             if (h < 40 * U || w < 60 * U) return;
+            GraphRect = new Rect(p.X, p.Y, w, h);
 
             double vmax = Math.Max(30, Math.Ceiling(D.MaxSpeedKmh * 1.05 / 10) * 10);
             double lw = Math.Max(1, s.Num("linewidth", 3) * U);
@@ -652,7 +667,7 @@ namespace Tk2Gui
             double w = cell * (labw + (colw + 1) * M), h = gym ? lh * 3 : lh * (5 + n);
             Point p = Place(s, w, h);
             double lapBottom;
-            if (gym && L.Shown("laptime") && _bottom.TryGetValue("laptime", out lapBottom))
+            if (gym && s.Bool("follow", true) && L.Shown("laptime") && _bottom.TryGetValue("laptime", out lapBottom))
                 p = new Point(_lapRight - w, lapBottom + lh * 0.5);   // ラップタイムの下に、右端をそろえて置く
             double y = p.Y;
             _sectorBox = new Rect(p.X, p.Y, w, h);

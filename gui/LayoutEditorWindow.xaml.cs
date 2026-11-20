@@ -46,7 +46,7 @@ namespace Tk2Gui
         {
             { "x", "x (横)" }, { "y", "y (縦)" }, { "scale", "倍率" }, { "size", "文字の大きさ" }, { "width", "幅" }, { "height", "高さ" },
             { "laps", "周回の数" }, { "opacity", "不透明度" }, { "items", "項目" }, { "align", "寄せ方" }, { "border", "枠線の太さ" },
-            { "background", "背景" }, { "panel", "背景の色" }, { "panelopacity", "背景の濃さ" },
+            { "background", "背景" }, { "session", "セッション番号" }, { "panel", "背景の色" }, { "panelopacity", "背景の濃さ" },
         };
 
         static readonly string[] Anchors = { "topleft", "top", "topright", "bottomleft", "bottom", "bottomright" };
@@ -58,9 +58,9 @@ namespace Tk2Gui
             new Elem { Name = "gmeter", Label = "G メーター", Keys = new[] { "x", "y", "scale" } },
             new Elem { Name = "tacho", Label = "回転計", Keys = new[] { "x", "y", "scale", "opacity" }, Note = "音声から回転数を解析したときだけ出ます。" },
             new Elem { Name = "map", Label = "コース図", Keys = new[] { "x", "y", "width", "height", "background", "panel", "panelopacity" } },
-            new Elem { Name = "session", Label = "セッション・ドライバー", Keys = new[] { "x", "y", "size" } },
+            new Elem { Name = "session", Label = "ドライバー・心拍", Keys = new[] { "x", "y", "size", "background", "panel", "panelopacity" }, Note = "ドライバー名と心拍だけを出します。セッション番号はラップタイムの先頭の行に出ます。" },
             new Elem { Name = "heart", Label = "心拍", Keys = new[] { "size" }, NoPosition = true, Note = "位置はセッション・ドライバーの右に付いて動きます。FIT を合わせたセッションだけに出ます。" },
-            new Elem { Name = "laptime", Label = "ラップタイム", Keys = new[] { "x", "y", "size", "laps", "background", "panel", "panelopacity" } },
+            new Elem { Name = "laptime", Label = "ラップタイム", Keys = new[] { "x", "y", "size", "laps", "session", "background", "panel", "panelopacity" } },
             new Elem { Name = "sector", Label = "セクター", Keys = new[] { "x", "y", "size", "laps", "background", "panel", "panelopacity" } },
             new Elem { Name = "graph", Label = "速度のグラフ", Keys = new[] { "x", "y", "width", "height" }, Note = "出し入れは書き出し・時刻合わせ・動画で比較の 3 画面で共通です。" },
             new Elem { Name = "info", Label = "情報 (日時・緯度経度など)", Keys = new[] { "x", "y", "size", "items" } },
@@ -191,22 +191,24 @@ namespace Tk2Gui
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
                 g.ColumnDefinitions.Add(new ColumnDefinition());
                 g.Children.Add(new TextBlock { Text = KeyLabels.ContainsKey(k) ? KeyLabels[k] : k, VerticalAlignment = VerticalAlignment.Center });
-                if (k == "background")      // 背景の ON/OFF はチェックで
+                if (k == "background" || k == "session")      // ON/OFF はチェックで
                 {
                     string kk = k;
-                    CheckBox bc = new CheckBox { Content = "薄い背景を敷く", VerticalAlignment = VerticalAlignment.Center, IsChecked = CurrentValue(e, k) == "1" };
+                    bool defOn = k == "session";     // 既定: セッション番号は出す、背景は出さない
+                    Func<string, bool> isOn = v => v.Length == 0 ? defOn : v == "1";
+                    CheckBox bc = new CheckBox { Tag = k, Content = k == "session" ? "先頭の行に出す (ジムカーナは出ません)" : "薄い背景を敷く", VerticalAlignment = VerticalAlignment.Center, IsChecked = isOn(CurrentValue(e, k)) };
                     System.Windows.Automation.AutomationProperties.SetAutomationId(bc, "Prop_" + k);
                     Grid.SetColumn(bc, 1);
                     RoutedEventHandler bh = (o, a) =>
                     {
                         if (_fill || _sel == null) return;
                         bool on = bc.IsChecked == true;
-                        if ((CurrentValue(_sel, kk) == "1") == on) return;
+                        if (isOn(CurrentValue(_sel, kk)) == on) return;
                         Begin();
                         Change(_sel.Name, kk, on ? "1" : "0");
                         Commit();
                         Render(true);
-                        Status(_sel.Label + " の背景を " + (on ? "出す" : "出さない") + "ようにしました。");
+                        Status(_sel.Label + " の" + (kk == "session" ? "セッション番号" : "背景") + "を " + (on ? "出す" : "出さない") + "ようにしました。");
                     };
                     bc.Checked += bh; bc.Unchecked += bh;
                     g.Children.Add(bc);
@@ -236,7 +238,9 @@ namespace Tk2Gui
             string note = e.Note ?? "";
             if (e.Name == "laptime" && _lay[e.Name].Str("below", "").Length > 0) note += (note.Length > 0 ? "\n" : "") + "いまは「" + _lay[e.Name].Str("below") + " の下に続ける」指定です。動かすと、この指定を外して位置を数値にします。";
             if (e.Name == "graph" && !_lay[e.Name].Str("above", "sector").Equals("none", StringComparison.OrdinalIgnoreCase))
-                note += (note.Length > 0 ? "\n" : "") + "いまは「セクターの上に置く」指定です (ジムカーナを除く)。動かすと、この指定を外して位置を数値にします。";
+                note += (note.Length > 0 ? "\n" : "") + "いまは「セクターの上に置く」指定です (ジムカーナを除く)。動かすと、この指定を外して位置と大きさを数値にします。";
+            if (e.Name == "sector" && _data.Def.IsGymkhana && _lay[e.Name].Bool("follow", true))
+                note += (note.Length > 0 ? "\n" : "") + "いまは「ラップタイムの下に付ける」指定です (ジムカーナ)。動かすと、この指定を外して位置を数値にします。";
             SelNote.Text = note;
             SelNote.Visibility = note.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -281,7 +285,11 @@ namespace Tk2Gui
                 TextBox tb = g.Children.OfType<TextBox>().FirstOrDefault();
                 if (tb != null && (all || !tb.IsKeyboardFocused)) tb.Text = CurrentValue(_sel, (string)tb.Tag);
                 CheckBox cb = g.Children.OfType<CheckBox>().FirstOrDefault();
-                if (cb != null) cb.IsChecked = CurrentValue(_sel, "background") == "1";
+                if (cb != null)
+                {
+                    string ck = (string)cb.Tag, cv = CurrentValue(_sel, ck);
+                    cb.IsChecked = cv.Length == 0 ? ck == "session" : cv == "1";
+                }
             }
             _fill = f;
         }
@@ -344,10 +352,23 @@ namespace Tk2Gui
         void Unchain(Elem e)
         {
             bool chained = e.Name == "laptime" && _lay[e.Name].Str("below", "").Length > 0
-                        || e.Name == "graph" && !_lay[e.Name].Str("above", "sector").Equals("none", StringComparison.OrdinalIgnoreCase);
+                        || e.Name == "graph" && !_lay[e.Name].Str("above", "sector").Equals("none", StringComparison.OrdinalIgnoreCase)
+                        || e.Name == "sector" && _data.Def.IsGymkhana && _lay[e.Name].Bool("follow", true);
             if (!chained) return;
             Rect before = RectOf(e.Name);
-            if (e.Name == "laptime") Change(e.Name, "below", null); else Change(e.Name, "above", "none");
+            if (e.Name == "laptime") Change(e.Name, "below", null);
+            else if (e.Name == "sector") Change(e.Name, "follow", "0");
+            else
+            {
+                // セクターの上に置いていたときの大きさ (幅はセクターに合わせ、高さはラップタイムに重ならないよう縮めていた) を数値にして保つ
+                Rect g = _renderer != null ? _renderer.GraphRect : Rect.Empty;
+                Change(e.Name, "above", "none");
+                if (!g.IsEmpty)
+                {
+                    Change(e.Name, "width", Math.Round(g.Width).ToString(Inv));
+                    Change(e.Name, "height", Math.Round(g.Height).ToString(Inv));
+                }
+            }
             KeepPlace(e, before);
             UpdateNote();
             RefreshPropValues();
@@ -392,7 +413,7 @@ namespace Tk2Gui
         // ---------------- マウス・キー ----------------
 
         Point _dragStart, _dragLast;
-        bool _dragging;
+        bool _dragging, _dragMoved;
 
         void Stage_Down(object sender, MouseButtonEventArgs e)
         {
@@ -410,8 +431,8 @@ namespace Tk2Gui
             Select(hit);
             _dragStart = _dragLast = p;
             _dragging = true;
+            _dragMoved = false;
             Begin();
-            Unchain(hit);
             Stage.CaptureMouse();
             e.Handled = true;
         }
@@ -420,6 +441,13 @@ namespace Tk2Gui
         {
             if (!_dragging || _sel == null) return;
             Point p = e.GetPosition(Stage);
+            if (!_dragMoved)
+            {
+                // 少し動かしてから (クリックの手ぶれで指定を外したり動かしたりしない)
+                if (Math.Abs(p.X - _dragStart.X) < 4 && Math.Abs(p.Y - _dragStart.Y) < 4) return;
+                _dragMoved = true;
+                Unchain(_sel);
+            }
             double dx = Math.Round(p.X - _dragLast.X), dy = Math.Round(p.Y - _dragLast.Y);
             if (dx == 0 && dy == 0) return;
             Move(_sel, dx, dy);
@@ -434,7 +462,7 @@ namespace Tk2Gui
             _dragging = false;
             Stage.ReleaseMouseCapture();
             Commit();
-            if (_sel != null && (_dragLast - _dragStart).Length > 0)
+            if (_sel != null && _dragMoved && (_dragLast - _dragStart).Length > 0)
                 Status(string.Format(Inv, "{0} を動かしました (x = {1}, y = {2})。", _sel.Label, _lay[_sel.Name].Str("x"), _lay[_sel.Name].Str("y")));
         }
 
