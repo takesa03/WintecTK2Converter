@@ -18,27 +18,29 @@ namespace Tk2Gui
 
         public static event Action Changed;
 
-        static void SetGraph(bool on)
+        static void Set(string key, bool on)
         {
             if (_graph == on) return;
             _graph = on;
-            Settings.Set(GraphKey, on ? "1" : "0");
+            Settings.Set(key, on ? "1" : "0");
             try { Settings.Save(); } catch (Exception) { }
             Action h = Changed;
             if (h != null) h();
         }
 
         /// <summary>チェックボックスを共通の設定につなぐ。changed は、この画面の表示を描き直す処理 (ほかの画面で変えたときも呼ぶ)</summary>
-        public static void BindGraph(System.Windows.Controls.CheckBox cb, Action changed)
+        public static void BindGraph(System.Windows.Controls.CheckBox cb, Action changed) { Bind(cb, GraphKey, () => _graph, changed); }
+
+        static void Bind(System.Windows.Controls.CheckBox cb, string key, Func<bool> get, Action changed)
         {
             bool sync = false;
-            cb.IsChecked = _graph;
-            System.Windows.RoutedEventHandler h = (s, e) => { if (!sync) SetGraph(cb.IsChecked == true); };
+            cb.IsChecked = get();
+            System.Windows.RoutedEventHandler h = (s, e) => { if (!sync) Set(key, cb.IsChecked == true); };
             cb.Checked += h; cb.Unchecked += h;
             Action onChanged = () =>
             {
                 sync = true;
-                try { cb.IsChecked = _graph; } finally { sync = false; }
+                try { cb.IsChecked = get(); } finally { sync = false; }
                 if (changed != null) changed();
             };
             Changed += onChanged;

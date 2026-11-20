@@ -99,10 +99,31 @@ namespace Tk2Gui
         }
 
         /// <summary>表示の画像 hud (W x H の BGRA、乗算なし) の下にサブを貼る (表示が上)</summary>
-        public void Compose(byte[] hud, int W, int H, byte[] sub)
+        public void Compose(byte[] hud, int W, int H, byte[] sub) { Compose(_c, hud, W, H, sub); }
+
+        /// <summary>サブの 1 フレーム (サブの秒 t) だけを読む (書き出し画面のプレビュー用)。読めなければ null</summary>
+        public static byte[] Grab(string ffmpeg, SubClip c, double t)
+        {
+            string vf = string.Format(Inv, "crop={0}:{1}:{2}:{3},scale={4}:{5}:flags=bicubic", c.CW, c.CH, c.CX, c.CY, c.DW, c.DH);
+            string args = string.Format(Inv, "-hide_banner -loglevel error -ss {0:0.######} -i \"{1}\" -an -sn -frames:v 1 -vf {2} -f rawvideo -pix_fmt bgra -", Math.Max(0, t), c.Path, vf);
+            using (Process p = new Process { StartInfo = new ProcessStartInfo(ffmpeg, args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true } })
+            {
+                p.Start();
+                p.ErrorDataReceived += (s, e) => { };
+                p.BeginErrorReadLine();
+                int size = c.DW * c.DH * 4, got = 0;
+                byte[] px = new byte[size];
+                Stream st = p.StandardOutput.BaseStream;
+                while (got < size) { int r = st.Read(px, got, size - got); if (r <= 0) break; got += r; }
+                p.WaitForExit(5000);
+                return got == size ? px : null;
+            }
+        }
+
+        /// <summary>表示の画像 hud (W x H の BGRA、乗算なし) の下にサブ c の画素 sub を貼る (表示が上)</summary>
+        public static void Compose(SubClip c, byte[] hud, int W, int H, byte[] sub)
         {
             if (sub == null) return;
-            SubClip c = _c;
             double op = Math.Max(0, Math.Min(1, c.Opacity));
             // 枠線 (サブの外側)
             if (c.Border > 0)

@@ -55,19 +55,20 @@
                               ToolTip="x・y を、画面のどの角 (辺) から測るか。変えても見た目の位置は保ちます"/>
                 </Grid>
                 <StackPanel Name="PropPanel"/>
-                <GroupBox Name="CropGroup" Header="サブ動画のトリミング (元の絵の %)" Margin="0,10,0,0" Visibility="Collapsed">
+                <GroupBox Name="CropGroup" Header="サブ動画のトリミング (元の絵から切り落とす画素数)" Margin="0,10,0,0" Visibility="Collapsed">
                     <StackPanel Margin="4">
                         <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,6"
-                                   Text="サブ動画ごとに「ログ名.log.json」へすぐ保存します (レイアウトのファイルには入りません)。Enter で反映、ホイールで 1% ずつ。"/>
-                        <StackPanel Orientation="Horizontal">
+                                   Text="枠の位置と大きさは上の x・y・width・height、トリミングはここで、元の動画の上下左右を何画素ずつ切り落とすかを指定します。サブ動画ごとに「ログ名.log.json」へすぐ保存します (レイアウトのファイルには入りません)。Enter で反映、ホイールで 2 画素ずつ (Shift で 10)。"/>
+                        <TextBlock Name="CropInfo" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,6"/>
+                        <StackPanel Name="CropBoxPanel" Orientation="Horizontal">
                             <TextBlock Text="左" VerticalAlignment="Center" Margin="0,0,3,0"/>
-                            <TextBox Name="CropL" Width="40" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
+                            <TextBox Name="CropL" Width="52" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
                             <TextBlock Text="上" VerticalAlignment="Center" Margin="8,0,3,0"/>
-                            <TextBox Name="CropT" Width="40" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
+                            <TextBox Name="CropT" Width="52" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
                             <TextBlock Text="右" VerticalAlignment="Center" Margin="8,0,3,0"/>
-                            <TextBox Name="CropR" Width="40" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
+                            <TextBox Name="CropR" Width="52" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
                             <TextBlock Text="下" VerticalAlignment="Center" Margin="8,0,3,0"/>
-                            <TextBox Name="CropB" Width="40" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
+                            <TextBox Name="CropB" Width="52" FontFamily="Consolas" KeyDown="Crop_KeyDown" LostFocus="Crop_LostFocus" MouseWheel="Crop_Wheel"/>
                         </StackPanel>
                     </StackPanel>
                 </GroupBox>

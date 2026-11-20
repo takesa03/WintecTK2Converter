@@ -262,8 +262,9 @@ namespace Tk2Gui
             TextBox b = (TextBox)sender;
             double v;
             if (!double.TryParse(b.Text.Trim(), NumberStyles.Float, Inv, out v)) v = 0;
-            v = Math.Max(0, Math.Min(49, Math.Round(v) + (e.Delta > 0 ? 1 : -1)));
-            b.Text = v.ToString("0.#", Inv);
+            int step = (Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? 10 : 2;
+            v = Math.Max(0, Math.Round(v) + (e.Delta > 0 ? step : -step));
+            b.Text = v.ToString(Inv);
             ApplySubCrop();
             e.Handled = true;
         }
@@ -271,19 +272,27 @@ namespace Tk2Gui
         void ApplySubCrop()
         {
             if (_subPath == null || _subFill) return;
+            if (_subVi == null || _subVi.Width <= 0 || _subVi.Height <= 0) return;
+            int sw = _subVi.Width, sh = _subVi.Height;
+            int[] dim = { sw, sh, sw, sh };
+            int[] px = new int[4];
             double[] c = new double[4];
             TextBox[] bs = CropBoxes;
             for (int i = 0; i < 4; i++)
             {
                 double v;
-                if (!double.TryParse(bs[i].Text.Trim(), NumberStyles.Float, Inv, out v)) v = _subCrop[i] * 100;
-                c[i] = Math.Max(0, Math.Min(49, v)) / 100.0;
+                if (!double.TryParse(bs[i].Text.Trim(), NumberStyles.Float, Inv, out v)) v = _subCrop[i] * dim[i];
+                px[i] = (int)Math.Max(0, Math.Round(v));
             }
-            if (c[0] + c[2] > 0.9) c[2] = 0.9 - c[0];
-            if (c[1] + c[3] > 0.9) c[3] = 0.9 - c[1];
-            if (Enumerable.Range(0, 4).All(i => Math.Abs(c[i] - _subCrop[i]) < 1e-6)) { UpdateSubText(); return; }
+            // 残りが元の 10 % より小さくならないように、右・下を減らす
+            int minW = Math.Max(2, sw / 10), minH = Math.Max(2, sh / 10);
+            px[0] = Math.Min(px[0], sw - minW); px[2] = Math.Min(px[2], sw - minW - px[0]);
+            px[1] = Math.Min(px[1], sh - minH); px[3] = Math.Min(px[3], sh - minH - px[1]);
+            for (int i = 0; i < 4; i++) c[i] = (double)px[i] / dim[i];
+            if (Enumerable.Range(0, 4).All(i => Math.Abs(c[i] - _subCrop[i]) < 1e-9)) { UpdateSubText(); return; }
             SetSubCrop(c);
-            Status(string.Format(Inv, "サブ動画のトリミングを 左 {0:0.#}% 上 {1:0.#}% 右 {2:0.#}% 下 {3:0.#}% にしました。保存しました。", c[0] * 100, c[1] * 100, c[2] * 100, c[3] * 100));
+            Status(string.Format(Inv, "サブ動画のトリミングを 左 {0} 上 {1} 右 {2} 下 {3} 画素にしました (切り落とした後 {4} x {5})。保存しました。",
+                px[0], px[1], px[2], px[3], sw - px[0] - px[2], sh - px[1] - px[3]));
         }
 
         /// <summary>トリミングを変えて保存 (この画面とレイアウトエディタから)</summary>
@@ -310,6 +319,7 @@ namespace Tk2Gui
             SubPreview sp = _subPath == null ? null : new SubPreview
             {
                 Frame = _pane.CurrentSubFrame, Crop = (double[])_subCrop.Clone(),
+                SourceWidth = _subVi != null ? _subVi.Width : 0, SourceHeight = _subVi != null ? _subVi.Height : 0,
                 CropChanged = c => SetSubCrop(c)
             };
             try
@@ -350,7 +360,8 @@ namespace Tk2Gui
                     + (off >= 0 ? "  (サブが先に録り始めた)" : "  (サブが後から録り始めた)");
                 SubOffsetBox.Text = off.ToString("+0.000;-0.000", Inv);
                 TextBox[] bs = CropBoxes;
-                for (int i = 0; i < 4; i++) bs[i].Text = (_subCrop[i] * 100).ToString("0.#", Inv);
+                int[] dim = { _subVi.Width, _subVi.Height, _subVi.Width, _subVi.Height };
+                for (int i = 0; i < 4; i++) bs[i].Text = Math.Round(_subCrop[i] * dim[i]).ToString(Inv);
             }
             _subFill = false;
         }

@@ -397,6 +397,23 @@ namespace Tk2Gui
             return l.IsIn ? "IN" : l.LapNo.ToString(Inv);
         }
 
+        int _maxLapName = -1;
+
+        /// <summary>このセッションで出る周回の名前のいちばん長い文字数 (ラップタイムの背景の幅を固定するため)</summary>
+        public int MaxLapNameLength
+        {
+            get
+            {
+                if (_maxLapName < 0)
+                {
+                    int m = 0;
+                    if (Sess != null) foreach (LapRecord l in Sess.Laps) m = Math.Max(m, LapName(l).Length);
+                    _maxLapName = m;
+                }
+                return _maxLapName;
+            }
+        }
+
         /// <summary>タイムの左に出す周回の名前 (LAP 3 / OUT LAP / IN LAP / Heat 2)</summary>
         static string LapName(LapRecord l)
         {

@@ -109,17 +109,17 @@
                             <Button Content="＋0.1" Tag="0.1" Padding="6,2" Margin="0,0,4,4" Click="SubNudge_Click"/>
                             <Button Content="＋1 秒" Tag="1" Padding="6,2" Margin="0,0,4,4" Click="SubNudge_Click"/>
                         </WrapPanel>
-                        <TextBlock Text="トリミング (元の絵の %。Enter で反映)" Margin="0,4,0,2" FontSize="12"/>
+                        <TextBlock Text="トリミング (元の動画から切り落とす画素数。Enter で反映)" Margin="0,4,0,2" FontSize="12"/>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="左" VerticalAlignment="Center" Margin="0,0,3,0"/>
-                            <TextBox Name="SubCropL" Width="38" Tag="0" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"/>
+                            <TextBox Name="SubCropL" Width="48" Tag="0" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"/>
                             <TextBlock Text="上" VerticalAlignment="Center" Margin="8,0,3,0"/>
-                            <TextBox Name="SubCropT" Width="38" Tag="1" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"/>
+                            <TextBox Name="SubCropT" Width="48" Tag="1" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"/>
                             <TextBlock Text="右" VerticalAlignment="Center" Margin="8,0,3,0"/>
-                            <TextBox Name="SubCropR" Width="38" Tag="2" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"/>
+                            <TextBox Name="SubCropR" Width="48" Tag="2" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"/>
                             <TextBlock Text="下" VerticalAlignment="Center" Margin="8,0,3,0"/>
-                            <TextBox Name="SubCropB" Width="38" Tag="3" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"
-                                     ToolTip="マウスのホイールで 1% ずつ増減"/>
+                            <TextBox Name="SubCropB" Width="48" Tag="3" FontFamily="Consolas" KeyDown="SubBox_KeyDown" LostFocus="SubCrop_LostFocus" MouseWheel="SubCrop_Wheel"
+                                     ToolTip="マウスのホイールで 2 画素ずつ (Shift で 10) 増減"/>
                         </StackPanel>
                     </StackPanel>
                 </GroupBox>

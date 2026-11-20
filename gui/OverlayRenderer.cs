@@ -113,6 +113,18 @@ namespace Tk2Gui
             return new Point(left, top);
         }
 
+        /// <summary>節の background = 1 なら、枠 r の下に薄い背景 (節の panel の色) を敷く (レイアウトエディタで要素ごとに ON/OFF)</summary>
+        void PanelBack(DrawingContext dc, OverlaySection s, Rect r, double defPad = 10)
+        {
+            if (!s.Bool("background", false) || r.IsEmpty) return;
+            double pad = s.Num("panelpad", defPad) * U, rad = s.Num("panelradius", 8) * U;
+            r.Inflate(pad, pad);
+            Color pc = s.Col("panel", "#1F000000");
+            double op = s.Num("panelopacity", double.NaN);      // 濃さ (0〜1)。指定があれば色の先頭 2 桁より優先
+            if (!double.IsNaN(op)) pc.A = (byte)Math.Round(Math.Max(0, Math.Min(1, op)) * 255);
+            dc.DrawRoundedRectangle(Br(pc), null, r, rad, rad);
+        }
+
         static Brush Br(Color c) { SolidColorBrush b = new SolidColorBrush(c); b.Freeze(); return b; }
         static Pen P(Color c, double w)
         {
@@ -400,6 +412,7 @@ namespace Tk2Gui
             double ox = an.Contains("right") ? tl.X + mw - _bounds.Width * sc : (an.Contains("left") ? tl.X : tl.X + (mw - _bounds.Width * sc) / 2);
             double oy = an.Contains("bottom") ? tl.Y + mh - _bounds.Height * sc : tl.Y;
             Func<Point, Point> tp = p => new Point(ox + (p.X - _bounds.X) * sc, oy + (_bounds.Bottom - p.Y) * sc);   // 北が上
+            PanelBack(dc, s, new Rect(ox, oy, _bounds.Width * sc, _bounds.Height * sc), 16);
 
             StreamGeometry sg = new StreamGeometry();
             using (StreamGeometryContext c = sg.Open())
@@ -487,6 +500,14 @@ namespace Tk2Gui
             Point p = Place(s, w, h);
             double R = p.X + w, y = p.Y;
             _lapRight = R;
+            {
+                // 左にはみ出す周回名 (Lap 3 / Heat 5 など) も背景に入れる。名前は Time の欄の左に右寄せで出る。
+                // 幅はセッションでいちばん長い名前に合わせて固定する (周回ごとに背景が伸び縮みしないように)
+                double left = p.X;
+                int nl = D.MaxLapNameLength;
+                if (nl > 0) left = Math.Min(left, R - cell * 14 - cell * nl);
+                PanelBack(dc, s, new Rect(left, p.Y, R - left, h));
+            }
             Color col = s.Col("color", "#FFFFFF"), best = s.Col("best", "#00FFFF"), plus = s.Col("plus", "#FF0000"), minus = s.Col("minus", "#4080FF");
 
             Mono(dc, st.LapTime, size, cell, R, y, col, sw);
@@ -635,6 +656,7 @@ namespace Tk2Gui
                 p = new Point(_lapRight - w, lapBottom + lh * 0.5);   // ラップタイムの下に、右端をそろえて置く
             double y = p.Y;
             _sectorBox = new Rect(p.X, p.Y, w, h);
+            PanelBack(dc, s, _sectorBox);
             Color col = s.Col("color", "#FFFFFF"), run = s.Col("running", "#FFFF80"), best = s.Col("best", "#00FFFF"),
                   plus = s.Col("plus", "#FF0000"), minus = s.Col("minus", "#4080FF");
             Func<int, double> xr = j => p.X + cell * (labw + (colw + 1) * (j + 1));

@@ -168,8 +168,62 @@ namespace Tk2Gui
                 System.Windows.Media.Imaging.WriteableBitmap wb = new System.Windows.Media.Imaging.WriteableBitmap(_preview.RenderBitmap(st));
                 wb.Freeze();
                 PreviewImage.Source = wb;
+                if (SubIncludeCheck.IsChecked == true) PreviewSub(TimeSlider.Value, wb);
             }
             catch (Exception ex) { Status("描画に失敗しました: " + ex.Message); }
+        }
+
+        // ---- プレビューのサブ動画 (「サブ動画も含める」のとき。書き出しと同じ SubClip・同じ重ね方) ----
+        SubClip _pvSub;                 // プレビューの範囲・大きさ・レイアウトで作ったもの
+        object _pvSubKey;               // _pvSub を作ったときの (データ, レイアウト, 大きさ)
+        bool _pvSubNone;                // 探したが無かった
+        int _pvTok;                     // 最後に頼んだプレビュー (古い結果は捨てる)
+
+        void SubInclude_Changed(object sender, RoutedEventArgs e) { UpdatePreview(); }
+
+        async void PreviewSub(double x, System.Windows.Media.Imaging.BitmapSource hud)
+        {
+            int tok = ++_pvTok;
+            OverlayData data = _data; OverlayLayout layout = _layout;
+            int w, h; GetSize(out w, out h);
+            object key = Tuple.Create(data, layout, w, h);
+            string ff = OverlayEncoder.FindFfmpeg(FfmpegBox.Text);
+            if (ff == null) { Status("サブ動画のプレビューには ffmpeg.exe が必要です"); return; }
+            try
+            {
+                if (!Equals(key, _pvSubKey))
+                {
+                    _pvSubKey = key; _pvSub = null; _pvSubNone = false;
+                    SubClip c = await Task.Run(() => SubFor(ff, layout, data, w, h));
+                    if (!Equals(key, _pvSubKey)) return;
+                    _pvSub = c; _pvSubNone = c == null;
+                    if (c == null) Status("この範囲に重なるサブ動画がありません (時刻合わせ画面で登録したサブ動画、またはレイアウトの [subvideo] の show を確認してください)");
+                }
+                SubClip sc = _pvSub;
+                if (sc == null || tok != _pvTok) return;
+                if (x < sc.ClipFrom || x >= sc.ClipTo) return;      // この時刻はサブが映っていない
+                await Task.Delay(120);                              // スライダーを動かしている間は読まない
+                if (tok != _pvTok) return;
+                byte[] sub = await Task.Run(() => OverlaySubFeed.Grab(ff, sc, sc.Start + x));
+                if (tok != _pvTok || sub == null) return;
+                int stride = w * 4;
+                byte[] px = new byte[stride * h];
+                hud.CopyPixels(px, stride, 0);
+                for (int i = 0; i < px.Length; i += 4)          // 乗算済み → 乗算なし (Compose はこちらを受け取る)
+                {
+                    int a = px[i + 3];
+                    if (a == 0 || a == 255) continue;
+                    px[i] = (byte)Math.Min(255, px[i] * 255 / a);
+                    px[i + 1] = (byte)Math.Min(255, px[i + 1] * 255 / a);
+                    px[i + 2] = (byte)Math.Min(255, px[i + 2] * 255 / a);
+                }
+                OverlaySubFeed.Compose(sc, px, w, h, sub);
+                System.Windows.Media.Imaging.BitmapSource bs = System.Windows.Media.Imaging.BitmapSource.Create(
+                    w, h, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, px, stride);
+                bs.Freeze();
+                PreviewImage.Source = bs;
+            }
+            catch (Exception ex) { if (tok == _pvTok) Status("サブ動画のプレビューに失敗しました: " + ex.Message); }
         }
 
         void TimeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) { UpdatePreview(); }
@@ -180,15 +234,63 @@ namespace Tk2Gui
 
         LayoutEditorWindow _editor;
 
+        /// <summary>
+        /// エディタに渡すサブ動画 (この範囲に重なるもの)。トリミングは画面に絵が無くても数値で直せるように、元の大きさは必ず渡す。
+        /// 絵 (その時刻のコマ) は読めたときだけ。無ければ null
+        /// </summary>
+        SubPreview EditorSub(double logT)
+        {
+            if (_sess == null || string.IsNullOrEmpty(_sess.FilePath) || _data == null) return null;
+            string log = _sess.FilePath;
+            VideoStore.Entry s = VideoStore.FindSub(log, _data.StartT, _data.EndT);
+            if (s == null) return null;
+            string ff = OverlayEncoder.FindFfmpeg(FfmpegBox.Text);
+            if (ff == null) { Status("サブ動画のトリミングには ffmpeg.exe が必要です (動画の大きさを調べるため)"); return null; }
+            VideoInfo vi;
+            try { vi = FfVideo.Probe(ff, s.Path); }
+            catch (Exception ex) { Status("サブ動画を開けません: " + ex.Message); return null; }
+            if (vi == null || vi.Width <= 0) return null;
+            System.Windows.Media.Imaging.BitmapSource frame = null;
+            try
+            {
+                double st = logT - s.T0;
+                if (st >= 0 && st < vi.Duration)
+                {
+                    // 全体 (トリミング前) を幅 960 に縮めて 1 コマ
+                    int dw = Math.Min(960, vi.Width) / 2 * 2, dh = Math.Max(2, (int)Math.Round(vi.Height * (double)dw / vi.Width) / 2 * 2);
+                    SubClip full = new SubClip { Path = s.Path, CX = 0, CY = 0, CW = vi.Width - vi.Width % 2, CH = vi.Height - vi.Height % 2, DW = dw, DH = dh };
+                    byte[] px = OverlaySubFeed.Grab(ff, full, st);
+                    if (px != null)
+                    {
+                        frame = System.Windows.Media.Imaging.BitmapSource.Create(dw, dh, 96, 96, System.Windows.Media.PixelFormats.Bgra32, null, px, dw * 4);
+                        frame.Freeze();
+                    }
+                }
+            }
+            catch (Exception) { frame = null; }
+            return new SubPreview
+            {
+                Frame = frame, Crop = (double[])s.CropOrZero.Clone(), SourceWidth = vi.Width, SourceHeight = vi.Height,
+                CropChanged = c =>
+                {
+                    VideoStore.Entry en = VideoStore.FindSub(log, _data.StartT, _data.EndT);
+                    if (en != null) { en.Crop = c.All(x => x == 0) ? null : (double[])c.Clone(); VideoStore.Put(log, en); }
+                    _pvSubKey = null;       // プレビューのサブを作り直す
+                    UpdatePreview();
+                }
+            };
+        }
+
         /// <summary>レイアウトエディタ。変えるたびにこの画面のプレビュー (と書き出し) に使う</summary>
         void EditLayout_Click(object sender, RoutedEventArgs e)
         {
             if (_editor != null) { _editor.Activate(); return; }
             if (_data == null || _layout == null) { Status("レイアウトを読めていないので、編集できません。"); return; }
             FrameRate fr = FpsCombo.SelectedItem as FrameRate ?? FrameRate.All[3];
+            SubPreview sp = EditorSub(_data.StartT + TimeSlider.Value);
             try
             {
-                _editor = new LayoutEditorWindow(LayoutBox.Text, _data, _data.StartT + TimeSlider.Value, fr.Fps, null, null, l =>
+                _editor = new LayoutEditorWindow(LayoutBox.Text, _data, _data.StartT + TimeSlider.Value, fr.Fps, null, sp, l =>
                 {
                     _layout = l;
                     int w, h; GetSize(out w, out h);

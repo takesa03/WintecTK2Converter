@@ -65,6 +65,7 @@
                     <ComboBoxItem Content="QuickTime Animation (.mov, 透明付き・小さい)"/>
                 </ComboBox>
                 <CheckBox Name="SubIncludeCheck" Content="サブ動画も含める" VerticalAlignment="Center" Margin="16,0,0,0"
+                          Checked="SubInclude_Changed" Unchecked="SubInclude_Changed"
                           ToolTip="走行動画の時刻合わせで登録したサブ動画 (ペダルなど) を、レイアウトの [subvideo] の枠に入れて書き出します (表示の下。音声は入りません)。Resolve 側でサブを別に重ねるときは外したままにします。ffmpeg が必要です"/>
                 <CheckBox Name="GraphCheck" Content="速度のグラフ" VerticalAlignment="Center" Margin="16,0,0,0"                          ToolTip="右下のセクター表示の上に、距離ごとの速度のグラフを出します (ベストの周回を薄い面で背景に、走行中の周回を線で)。走行動画の時刻合わせ・動画で比較と共通の設定です。色・大きさはレイアウトの ini の [graph] 節"/>
             </WrapPanel>

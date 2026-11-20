@@ -241,6 +241,18 @@
                 <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <!-- 既定の見た目 (左の白いアイコン欄) を使わず、暗い板に項目を並べるだけにする -->
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ContextMenu">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="1" Padding="0,3">
+                                <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
             <Style TargetType="MenuItem">
                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
@@ -255,8 +267,10 @@
                                     <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentBrush}"/>
                                     <Setter Property="Foreground" Value="White"/>
                                 </Trigger>
+                                <!-- 無効の項目: 文字を暗くし、全体も薄くして選べないことが分かるように -->
                                 <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Foreground" Value="{StaticResource TextDimBrush}"/>
+                                    <Setter TargetName="Bd" Property="TextElement.Foreground" Value="{StaticResource TextDimBrush}"/>
+                                    <Setter TargetName="Bd" Property="Opacity" Value="0.6"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -266,6 +280,16 @@
             <Style TargetType="Separator">
                 <Setter Property="Background" Value="{StaticResource BorderBrush}"/>
                 <Setter Property="Margin" Value="4,3"/>
+            </Style>
+            <!-- メニューの中の区切り線 (MenuItem.SeparatorStyleKey で探されるので、ここにも同じ形を置く) -->
+            <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Separator">
+                            <Border Height="1" Margin="6,4" Background="{StaticResource BorderBrush}"/>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
 
             <!-- スクロールバー (ダーク)。縦・横の両方を同じ形で描く -->

@@ -20,6 +20,7 @@ namespace Tk2Gui
         public BitmapSource Frame;              // 今のコマ (トリミング前の全体。無ければ枠だけ出す)
         public double[] Crop;                   // [左, 上, 右, 下] (割合)
         public Action<double[]> CropChanged;    // トリミングを変えたとき (呼び出し側で log.json に保存)
+        public int SourceWidth, SourceHeight;   // 元の動画の画素数 (トリミングを画素で入れるため。0 なら Frame の大きさ)
     }
 
     // =====================================================================
@@ -45,6 +46,7 @@ namespace Tk2Gui
         {
             { "x", "x (横)" }, { "y", "y (縦)" }, { "scale", "倍率" }, { "size", "文字の大きさ" }, { "width", "幅" }, { "height", "高さ" },
             { "laps", "周回の数" }, { "opacity", "不透明度" }, { "items", "項目" }, { "align", "寄せ方" }, { "border", "枠線の太さ" },
+            { "background", "背景" }, { "panel", "背景の色" }, { "panelopacity", "背景の濃さ" },
         };
 
         static readonly string[] Anchors = { "topleft", "top", "topright", "bottomleft", "bottom", "bottomright" };
@@ -55,11 +57,11 @@ namespace Tk2Gui
             new Elem { Name = "speedometer", Label = "速度計", Keys = new[] { "x", "y", "scale" } },
             new Elem { Name = "gmeter", Label = "G メーター", Keys = new[] { "x", "y", "scale" } },
             new Elem { Name = "tacho", Label = "回転計", Keys = new[] { "x", "y", "scale", "opacity" }, Note = "音声から回転数を解析したときだけ出ます。" },
-            new Elem { Name = "map", Label = "コース図", Keys = new[] { "x", "y", "width", "height" } },
+            new Elem { Name = "map", Label = "コース図", Keys = new[] { "x", "y", "width", "height", "background", "panel", "panelopacity" } },
             new Elem { Name = "session", Label = "セッション・ドライバー", Keys = new[] { "x", "y", "size" } },
             new Elem { Name = "heart", Label = "心拍", Keys = new[] { "size" }, NoPosition = true, Note = "位置はセッション・ドライバーの右に付いて動きます。FIT を合わせたセッションだけに出ます。" },
-            new Elem { Name = "laptime", Label = "ラップタイム", Keys = new[] { "x", "y", "size", "laps" } },
-            new Elem { Name = "sector", Label = "セクター", Keys = new[] { "x", "y", "size", "laps" } },
+            new Elem { Name = "laptime", Label = "ラップタイム", Keys = new[] { "x", "y", "size", "laps", "background", "panel", "panelopacity" } },
+            new Elem { Name = "sector", Label = "セクター", Keys = new[] { "x", "y", "size", "laps", "background", "panel", "panelopacity" } },
             new Elem { Name = "graph", Label = "速度のグラフ", Keys = new[] { "x", "y", "width", "height" }, Note = "出し入れは書き出し・時刻合わせ・動画で比較の 3 画面で共通です。" },
             new Elem { Name = "info", Label = "情報 (日時・緯度経度など)", Keys = new[] { "x", "y", "size", "items" } },
             new Elem { Name = "subvideo", Label = "サブ動画", Keys = new[] { "x", "y", "width", "height", "align", "border", "opacity" }, Note = "トリミングした絵を、縦横比を変えずに枠に収めます。" },
@@ -189,9 +191,31 @@ namespace Tk2Gui
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
                 g.ColumnDefinitions.Add(new ColumnDefinition());
                 g.Children.Add(new TextBlock { Text = KeyLabels.ContainsKey(k) ? KeyLabels[k] : k, VerticalAlignment = VerticalAlignment.Center });
+                if (k == "background")      // 背景の ON/OFF はチェックで
+                {
+                    string kk = k;
+                    CheckBox bc = new CheckBox { Content = "薄い背景を敷く", VerticalAlignment = VerticalAlignment.Center, IsChecked = CurrentValue(e, k) == "1" };
+                    System.Windows.Automation.AutomationProperties.SetAutomationId(bc, "Prop_" + k);
+                    Grid.SetColumn(bc, 1);
+                    RoutedEventHandler bh = (o, a) =>
+                    {
+                        if (_fill || _sel == null) return;
+                        bool on = bc.IsChecked == true;
+                        if ((CurrentValue(_sel, kk) == "1") == on) return;
+                        Begin();
+                        Change(_sel.Name, kk, on ? "1" : "0");
+                        Commit();
+                        Render(true);
+                        Status(_sel.Label + " の背景を " + (on ? "出す" : "出さない") + "ようにしました。");
+                    };
+                    bc.Checked += bh; bc.Unchecked += bh;
+                    g.Children.Add(bc);
+                    PropPanel.Children.Add(g);
+                    continue;
+                }
                 TextBox tb = new TextBox { Tag = k, FontFamily = new FontFamily("Consolas"), Text = CurrentValue(e, k) };
                 System.Windows.Automation.AutomationProperties.SetAutomationId(tb, "Prop_" + k);
-                tb.ToolTip = k == "items" ? "DateTime, Elapsed, Lat, Lng, Alt, Dist, Speed, G をカンマで区切って" : k == "align" ? "center / left / right / top / bottom (\"top left\" のように組み合わせ可)" : "Enter で反映。数値はホイールで増減 (空にすると既定の値)";
+                tb.ToolTip = k == "panelopacity" ? "0〜1 (0.12 = グラフの背景と同じ)。ホイールで増減。空にすると背景の色の先頭 2 桁の濃さ" : k == "panel" ? "#AARRGGBB (先頭 2 桁が濃さ。空にすると既定の #1F000000 = グラフの背景と同じ濃さ)" : k == "items" ? "DateTime, Elapsed, Lat, Lng, Alt, Dist, Speed, G をカンマで区切って" : k == "align" ? "center / left / right / top / bottom (\"top left\" のように組み合わせ可)" : "Enter で反映。数値はホイールで増減 (空にすると既定の値)";
                 Grid.SetColumn(tb, 1);
                 tb.KeyDown += (o, a) => { if (a.Key == Key.Enter) { ApplyProp(tb); a.Handled = true; } };
                 tb.LostFocus += (o, a) => ApplyProp(tb);
@@ -199,13 +223,8 @@ namespace Tk2Gui
                 g.Children.Add(tb);
                 PropPanel.Children.Add(g);
             }
-            CropGroup.Visibility = e.Name == "subvideo" && _sub != null ? Visibility.Visible : Visibility.Collapsed;
-            if (_sub != null)
-            {
-                TextBox[] bs = CropBoxes;
-                double[] c = _sub.Crop ?? new double[4];
-                for (int i = 0; i < 4; i++) bs[i].Text = (i < c.Length ? c[i] * 100 : 0).ToString("0.#", Inv);
-            }
+            CropGroup.Visibility = e.Name == "subvideo" ? Visibility.Visible : Visibility.Collapsed;
+            FillCrop();
             _fill = false;
         }
 
@@ -261,6 +280,8 @@ namespace Tk2Gui
             {
                 TextBox tb = g.Children.OfType<TextBox>().FirstOrDefault();
                 if (tb != null && (all || !tb.IsKeyboardFocused)) tb.Text = CurrentValue(_sel, (string)tb.Tag);
+                CheckBox cb = g.Children.OfType<CheckBox>().FirstOrDefault();
+                if (cb != null) cb.IsChecked = CurrentValue(_sel, "background") == "1";
             }
             _fill = f;
         }
@@ -270,7 +291,9 @@ namespace Tk2Gui
             if (_fill || _sel == null) return;
             string k = (string)tb.Tag, v = tb.Text.Trim();
             if (v == CurrentValue(_sel, k)) return;
-            if (v.Length > 0 && k != "items" && k != "align")
+            if (v.Length > 0 && k == "panel" && !System.Text.RegularExpressions.Regex.IsMatch(v, "^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"))
+            { Status("色は #RRGGBB か #AARRGGBB で入れてください: " + v); tb.Text = CurrentValue(_sel, k); return; }
+            if (v.Length > 0 && k != "items" && k != "align" && k != "panel")
             {
                 double d;
                 if (!double.TryParse(v, NumberStyles.Float, Inv, out d)) { Status("数値を入れてください: " + v); tb.Text = CurrentValue(_sel, k); return; }
@@ -287,11 +310,12 @@ namespace Tk2Gui
         void WheelProp(TextBox tb, int dir)
         {
             string k = (string)tb.Tag;
-            if (k == "items" || k == "align") return;
-            double step = k == "scale" || k == "opacity" ? 0.05 : k == "width" || k == "height" ? 10 : 1;
+            if (k == "items" || k == "align" || k == "panel") return;
+            double step = k == "panelopacity" ? 0.02 : k == "scale" || k == "opacity" ? 0.05 : k == "width" || k == "height" ? 10 : 1;
             double v;
-            if (!double.TryParse(tb.Text.Trim(), NumberStyles.Float, Inv, out v)) v = k == "scale" || k == "opacity" ? 1 : 0;
+            if (!double.TryParse(tb.Text.Trim(), NumberStyles.Float, Inv, out v)) v = k == "scale" || k == "opacity" ? 1 : k == "panelopacity" ? 0.12 : 0;
             v = Math.Round((v + dir * step) / step) * step;
+            if (k == "panelopacity") v = Math.Min(1, v);
             if (k == "opacity") v = Math.Max(0.05, Math.Min(1, v));
             if (k == "scale") v = Math.Max(0.05, v);
             if (k != "x" && k != "y") v = Math.Max(0, v);
@@ -599,6 +623,37 @@ namespace Tk2Gui
 
         TextBox[] CropBoxes { get { return new[] { CropL, CropT, CropR, CropB }; } }
 
+        /// <summary>元の動画の画素数 (横, 縦)。わからなければ 0</summary>
+        void SrcSize(out int sw, out int sh)
+        {
+            sw = 0; sh = 0;
+            if (_sub == null) return;
+            sw = _sub.SourceWidth; sh = _sub.SourceHeight;
+            if ((sw <= 0 || sh <= 0) && _sub.Frame != null) { sw = _sub.Frame.PixelWidth; sh = _sub.Frame.PixelHeight; }
+        }
+
+        /// <summary>トリミングの欄に今の値を画素で入れる</summary>
+        void FillCrop()
+        {
+            int sw, sh; SrcSize(out sw, out sh);
+            bool ok = _sub != null && sw > 0 && sh > 0;
+            CropBoxPanel.IsEnabled = ok;
+            TextBox[] bs = CropBoxes;
+            if (!ok)
+            {
+                foreach (TextBox b in bs) b.Text = "";
+                CropInfo.Text = _sub == null
+                    ? "サブ動画が読み込まれていないので、トリミングはできません。走行動画の時刻合わせ画面でサブ動画を登録してから、そこ (または動画で比較) の「表示の編集...」で開いてください。"
+                    : "サブ動画の大きさがわからないので、トリミングはできません。";
+                return;
+            }
+            double[] c = _sub.Crop ?? new double[4];
+            int[] dim = { sw, sh, sw, sh };
+            int[] px = new int[4];
+            for (int i = 0; i < 4; i++) { px[i] = (int)Math.Round((i < c.Length ? c[i] : 0) * dim[i]); bs[i].Text = px[i].ToString(Inv); }
+            CropInfo.Text = string.Format(Inv, "元の動画 {0} x {1} → 切り落とした後 {2} x {3}", sw, sh, sw - px[0] - px[2], sh - px[1] - px[3]);
+        }
+
         void Crop_KeyDown(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) { ApplyCrop(); e.Handled = true; } }
         void Crop_LostFocus(object sender, RoutedEventArgs e) { ApplyCrop(); }
 
@@ -607,7 +662,8 @@ namespace Tk2Gui
             TextBox b = (TextBox)sender;
             double v;
             if (!double.TryParse(b.Text.Trim(), NumberStyles.Float, Inv, out v)) v = 0;
-            b.Text = Math.Max(0, Math.Min(49, Math.Round(v) + (e.Delta > 0 ? 1 : -1))).ToString("0.#", Inv);
+            int step = (Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? 10 : 2;
+            b.Text = Math.Max(0, Math.Round(v) + (e.Delta > 0 ? step : -step)).ToString(Inv);
             ApplyCrop();
             e.Handled = true;
         }
@@ -615,21 +671,34 @@ namespace Tk2Gui
         void ApplyCrop()
         {
             if (_fill || _sub == null) return;
+            int sw, sh; SrcSize(out sw, out sh);
+            if (sw <= 0 || sh <= 0) return;
             double[] old = _sub.Crop ?? new double[4], c = new double[4];
+            int[] dim = { sw, sh, sw, sh };
+            int[] px = new int[4];
             TextBox[] bs = CropBoxes;
             for (int i = 0; i < 4; i++)
             {
                 double v;
-                if (!double.TryParse(bs[i].Text.Trim(), NumberStyles.Float, Inv, out v)) v = (i < old.Length ? old[i] : 0) * 100;
-                c[i] = Math.Max(0, Math.Min(49, v)) / 100.0;
+                if (!double.TryParse(bs[i].Text.Trim(), NumberStyles.Float, Inv, out v)) v = (i < old.Length ? old[i] : 0) * dim[i];
+                px[i] = (int)Math.Max(0, Math.Round(v));
             }
-            if (c[0] + c[2] > 0.9) c[2] = 0.9 - c[0];
-            if (c[1] + c[3] > 0.9) c[3] = 0.9 - c[1];
-            if (Enumerable.Range(0, 4).All(i => Math.Abs(c[i] - (i < old.Length ? old[i] : 0)) < 1e-6)) return;
-            _sub.Crop = c;
-            if (_sub.CropChanged != null) _sub.CropChanged(c);
+            // 残りが元の 10 % より小さくならないように、右・下を減らす
+            int minW = Math.Max(2, sw / 10), minH = Math.Max(2, sh / 10);
+            px[0] = Math.Min(px[0], sw - minW); px[2] = Math.Min(px[2], sw - minW - px[0]);
+            px[1] = Math.Min(px[1], sh - minH); px[3] = Math.Min(px[3], sh - minH - px[1]);
+            for (int i = 0; i < 4; i++) c[i] = (double)px[i] / dim[i];
+            bool same = Enumerable.Range(0, 4).All(i => Math.Abs(c[i] - (i < old.Length ? old[i] : 0)) < 1e-9);
+            if (!same)
+            {
+                _sub.Crop = c;
+                if (_sub.CropChanged != null) _sub.CropChanged(c);
+            }
+            _fill = true;
+            try { FillCrop(); } finally { _fill = false; }
+            if (same) return;
             Render(false);
-            Status(string.Format(Inv, "サブ動画のトリミングを 左 {0:0.#}% 上 {1:0.#}% 右 {2:0.#}% 下 {3:0.#}% にしました (log.json に保存)。", c[0] * 100, c[1] * 100, c[2] * 100, c[3] * 100));
+            Status(string.Format(Inv, "サブ動画のトリミングを 左 {0} 上 {1} 右 {2} 下 {3} 画素にしました (log.json に保存)。", px[0], px[1], px[2], px[3]));
         }
 
         // ---------------- 保存 ----------------

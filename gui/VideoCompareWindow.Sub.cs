@@ -89,6 +89,7 @@ namespace Tk2Gui
             SubPreview sp = a.Sub == null ? null : new SubPreview
             {
                 Frame = a.Pane.CurrentSubFrame, Crop = (double[])a.Sub.CropOrZero.Clone(),
+                SourceWidth = a.SubVi != null ? a.SubVi.Width : 0, SourceHeight = a.SubVi != null ? a.SubVi.Height : 0,
                 CropChanged = c =>
                 {
                     // トリミングはサブ動画ごと (log.json)。A のサブ動画に保存し、同じ動画を使う B にも反映
