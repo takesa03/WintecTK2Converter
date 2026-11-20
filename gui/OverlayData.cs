@@ -414,6 +414,26 @@ namespace Tk2Gui
             }
         }
 
+        /// <summary>このセッションで履歴の行に出る名前 (OUT / IN / 3 など。セクター表の名前の列の幅を、描いたときの幅で固定するため)</summary>
+        public IEnumerable<string> LapLabels
+        {
+            get
+            {
+                if (Sess == null) yield break;
+                foreach (LapRecord l in Sess.Laps) yield return LapLabel(l);
+            }
+        }
+
+        /// <summary>このセッションで出る周回の名前 (ラップタイムの背景の幅を、描いたときの幅で固定するため)</summary>
+        public IEnumerable<string> LapNames
+        {
+            get
+            {
+                if (Sess == null) yield break;
+                foreach (LapRecord l in Sess.Laps) { string n = LapName(l); if (n.Length > 0) yield return n; }
+            }
+        }
+
         /// <summary>タイムの左に出す周回の名前 (LAP 3 / OUT LAP / IN LAP / Heat 2)</summary>
         static string LapName(LapRecord l)
         {

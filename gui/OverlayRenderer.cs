@@ -492,6 +492,20 @@ namespace Tk2Gui
             Mono(dc, n, size, cell, xr, ty, s.Col("numcolor", "#FFFFFF"), sw);
         }
 
+        double _lapNameSize = double.NaN, _lapNameW;
+
+        /// <summary>このセッションの周回名をこの大きさで描いたときの、いちばん広い幅</summary>
+        double LapNameWidth(double size)
+        {
+            if (size != _lapNameSize)
+            {
+                double m = 0;
+                foreach (string n in D.LapNames) m = Math.Max(m, Ft(n, size, Colors.White).Width);
+                _lapNameSize = size; _lapNameW = m;
+            }
+            return _lapNameW;
+        }
+
         void DrawLap(DrawingContext dc, OverlayState st)
         {
             OverlaySection s = L["laptime"];
@@ -508,8 +522,8 @@ namespace Tk2Gui
                 // 左にはみ出す周回名 (Lap 3 / Heat 5 など) も背景に入れる。名前は Time の欄の左に右寄せで出る。
                 // 幅はセッションでいちばん長い名前に合わせて固定する (周回ごとに背景が伸び縮みしないように)
                 double left = p.X;
-                int nl = D.MaxLapNameLength;
-                if (nl > 0) left = Math.Min(left, R - cell * 14 - cell * nl);
+                double nw = LapNameWidth(size);     // 名前は普通の字詰めで描くので、描いたときの幅で測る
+                if (nw > 0) left = Math.Min(left, R - cell * 14 - nw);
                 PanelBack(dc, s, new Rect(left, p.Y, R - left, h));
             }
             Color col = s.Col("color", "#FFFFFF"), best = s.Col("best", "#00FFFF"), plus = s.Col("plus", "#FF0000"), minus = s.Col("minus", "#4080FF");
@@ -517,13 +531,13 @@ namespace Tk2Gui
             if (head)
             {
                 string ht = "Session " + st.SessionNo.ToString(Inv);
-                Mono(dc, ht, size, cell, R, y, col, sw);
+                Text(dc, ht, size, col, R, y, 1, 0, sw, Colors.Black);   // ラベルは普通の字詰め (数字の桁そろえは不要)
                 y += lh;
             }
             Mono(dc, st.LapTime, size, cell, R, y, col, sw);
-            Mono(dc, "Time", size, cell, R - cell * 9, y, col, sw);
+            Text(dc, "Time", size, col, R - cell * 9, y, 1, 0, sw, Colors.Black);   // ラベルは普通の字詰めで、右端をそろえる
             if (!string.IsNullOrEmpty(st.LapName))     // 枠の左にはみ出して出す (タイムの欄の位置は変えない)
-                Mono(dc, st.LapName, size, cell, R - cell * 14, y, col, sw);
+                Text(dc, st.LapName, size, col, R - cell * 14, y, 1, 0, sw, Colors.Black);
             y += lh;
             if (st.LapDelta.HasValue)
                 Mono(dc, OverlayData.FmtLapDelta(st.LapDelta.Value), size, cell, R, y, st.LapDelta.Value > 0 ? plus : minus, sw);
@@ -531,13 +545,13 @@ namespace Tk2Gui
             y += lh * 2;
             Color bl = s.Col("bestline", "#A0FF40");   // Best の行
             Mono(dc, st.LapBest, size, cell, R, y, bl, sw);
-            Mono(dc, "Best", size, cell, R - cell * 9, y, bl, sw);
+            Text(dc, "Best", size, bl, R - cell * 9, y, 1, 0, sw, Colors.Black);
             y += lh;
             foreach (LapLine ln in st.LapHistory.Skip(Math.Max(0, st.LapHistory.Count - n)))
             {
                 Color c = ln.Best ? best : col;
                 Mono(dc, ln.Text, size, cell, R, y, c, sw);
-                Mono(dc, ln.Label, size, cell, R - cell * 9, y, c, sw);
+                Text(dc, ln.Label, size, c, R - cell * 9, y, 1, 0, sw, Colors.Black);
                 y += lh;
             }
             _bottom["laptime"] = p.Y + h;
@@ -655,6 +669,21 @@ namespace Tk2Gui
             dc.Pop();
         }
 
+        double _secLabSize = double.NaN, _secLabW;
+
+        /// <summary>セクター表の行の名前 (Sector / Best / OUT / 3 ...) をこの大きさで描いたときの、いちばん広い幅</summary>
+        double SecLabelWidth(double size)
+        {
+            if (size != _secLabSize)
+            {
+                double m = 0;
+                foreach (string n in new[] { "Sector", "Best" }.Concat(D.LapLabels))
+                    if (n.Length > 0) m = Math.Max(m, Ft(n, size, Colors.White).WidthIncludingTrailingWhitespace);
+                _secLabSize = size; _secLabW = m;
+            }
+            return _secLabW;
+        }
+
         void DrawSector(DrawingContext dc, OverlayState st)
         {
             OverlaySection s = L["sector"];
@@ -662,9 +691,10 @@ namespace Tk2Gui
             if (M == 0) return;
             double size = s.Num("size", 30) * U, cell = Cell(size), lh = size * 1.1, sw = Math.Max(1, size / 18);
             int n = Math.Max(0, s.Int("laps", 3));
-            const int colw = 7, labw = 6;   // 1 列の文字数 ("+12.345" が入る幅), 行の名前の幅
+            const int colw = 7;   // 1 列の文字数 ("+12.345" が入る幅)
             bool gym = D.Def.IsGymkhana;
-            double w = cell * (labw + (colw + 1) * M), h = gym ? lh * 3 : lh * (5 + n);
+            double lab = SecLabelWidth(size);   // 行の名前の列: 普通の字詰めで描いたときのいちばん広い幅 (背景の左端もこれに合わせる)
+            double w = lab + cell * ((colw + 1) * M), h = gym ? lh * 3 : lh * (5 + n);
             Point p = Place(s, w, h);
             double lapBottom;
             if (gym && s.Bool("follow", true) && L.Shown("laptime") && _bottom.TryGetValue("laptime", out lapBottom))
@@ -674,9 +704,9 @@ namespace Tk2Gui
             PanelBack(dc, s, _sectorBox);
             Color col = s.Col("color", "#FFFFFF"), run = s.Col("running", "#FFFF80"), best = s.Col("best", "#00FFFF"),
                   plus = s.Col("plus", "#FF0000"), minus = s.Col("minus", "#4080FF");
-            Func<int, double> xr = j => p.X + cell * (labw + (colw + 1) * (j + 1));
+            Func<int, double> xr = j => p.X + lab + cell * ((colw + 1) * (j + 1));
 
-            Mono(dc, "Sector", size, cell, p.X + cell * labw, y, col, sw);
+            Text(dc, "Sector", size, col, p.X + lab, y, 1, 0, sw, Colors.Black);
             for (int j = 0; j < M; j++) Mono(dc, st.SecNames[j], size, cell, xr(j), y, col, sw);
             y += lh;
             for (int j = 0; j < M; j++) Mono(dc, st.SecCur[j], size, cell, xr(j), y, st.SecRunning[j] ? run : col, sw);
@@ -687,12 +717,12 @@ namespace Tk2Gui
             if (gym) return;
             y += lh * 2;
             Color bl = s.Col("bestline", "#A0FF40");   // Best の行
-            Mono(dc, "Best", size, cell, p.X + cell * labw, y, bl, sw);
+            Text(dc, "Best", size, bl, p.X + lab, y, 1, 0, sw, Colors.Black);
             for (int j = 0; j < M; j++) Mono(dc, st.SecBest[j], size, cell, xr(j), y, bl, sw);
             y += lh;
             foreach (SectorLine ln in st.SecHistory.Skip(Math.Max(0, st.SecHistory.Count - n)))
             {
-                Mono(dc, ln.Label, size, cell, p.X + cell * labw, y, col, sw);
+                Text(dc, ln.Label, size, col, p.X + lab, y, 1, 0, sw, Colors.Black);
                 for (int j = 0; j < M; j++) Mono(dc, ln.Text[j], size, cell, xr(j), y, ln.Best[j] ? best : col, sw);
                 y += lh;
             }
