@@ -146,13 +146,27 @@ namespace Tk2Gui
                 try
                 {
                     Rect r = w.WindowState == WindowState.Normal ? new Rect(w.Left, w.Top, w.ActualWidth, w.ActualHeight) : w.RestoreBounds;
-                    if (!r.IsEmpty && r.Width > 0 && r.Height > 0)
+                    if (!r.IsEmpty && r.Width > 0 && r.Height > 0 && !_noBounds.Contains(w))
                         D.Windows[key] = new Bounds { Left = r.Left, Top = r.Top, Width = r.Width, Height = r.Height, Maximized = w.WindowState == WindowState.Maximized };
                     if (save != null) save();
                 }
                 catch (Exception) { }
                 Save();
             };
+        }
+
+        // 位置・大きさを保存しないウィンドウ (動画で比較の「並べて配置」で並べている間など)
+        static readonly HashSet<Window> _noBounds = new HashSet<Window>();
+
+        /// <summary>
+        /// 閉じるときに位置・大きさを保存するかどうか (ほかの設定は保存する)。
+        /// 「並べて配置」で並べた位置を、その画面を単独で開いたときの位置として覚えないようにする
+        /// </summary>
+        public static void KeepBounds(Window w, bool keep)
+        {
+            if (w == null) return;
+            if (keep) _noBounds.Remove(w);
+            else if (_noBounds.Add(w)) w.Closed += (s, e) => _noBounds.Remove(w);
         }
 
         // 前回の位置が、今の画面 (複数モニターを含む全体) の中に十分入っているか (モニターを外したときなどに、画面の外へ出ないように)

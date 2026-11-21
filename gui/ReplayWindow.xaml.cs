@@ -113,9 +113,51 @@ namespace Tk2Gui
         public double ProgressAt(double t) { return Total > 0 ? DistAt(Math.Max(0, Math.Min(LapTime, t))) / Total : 0; }
 
         /// <summary>進み具合 p (0〜1) に着く時刻 [s]</summary>
-        public double TimeAtProgress(double p)
+        public double TimeAtProgress(double p) { return TimeAtDist(Math.Max(0, Math.Min(1, p)) * Total); }
+
+        /// <summary>
+        /// ラインの通過時刻 (周回の開始からの秒。0, セクターの境目…, LapTime)。null = 開始と終わりだけ。
+        /// 差を出すとき、走った距離の割合をラインの間ごとに取る (周回によって走った距離が違っても、ラインの位置でずれない)
+        /// </summary>
+        public double[] Marks;
+
+        double[] MarkTimes { get { return Marks != null && Marks.Length >= 2 ? Marks : new[] { 0, LapTime }; } }
+
+        /// <summary>ラインの通過時刻を周回 rec のセクタータイムから付ける (自分を返す)</summary>
+        public ReplayLap WithMarks(LapRecord rec) { Marks = MarksOf(rec); return this; }
+
+        /// <summary>周回 rec のラインの通過時刻 (全セクターのタイムがあるときだけ。無ければ null)</summary>
+        public static double[] MarksOf(LapRecord rec)
         {
-            double target = Math.Max(0, Math.Min(1, p)) * Total;
+            if (rec == null || !rec.LapTime.HasValue || rec.Sector == null || rec.Sector.Length < 2 || rec.Sector.Any(s => !s.HasValue)) return null;
+            double[] m = new double[rec.Sector.Length + 1];
+            for (int k = 0; k < rec.Sector.Length; k++) m[k + 1] = m[k] + rec.Sector[k].Value;
+            m[m.Length - 1] = rec.LapTime.Value;
+            return m;
+        }
+
+        /// <summary>
+        /// この周回の時刻 t と同じ所 (ラインの間の、走った距離の同じ割合) に、周回 rf が着く時刻。
+        /// 両方のラインの数が違うときは周回全体の割合で比べる
+        /// </summary>
+        public double MatchTime(double t, ReplayLap rf)
+        {
+            double[] a = MarkTimes, b = rf.MarkTimes;
+            if (a.Length != b.Length) { a = new[] { 0, LapTime }; b = new[] { 0, rf.LapTime }; }
+            t = Math.Max(0, Math.Min(LapTime, t));
+            double d = DistAt(t);
+            int k = 0;
+            while (k < a.Length - 2 && t >= a[k + 1]) k++;
+            double d0 = DistAt(a[k]), d1 = DistAt(a[k + 1]);
+            double f = d1 > d0 ? Math.Max(0, Math.Min(1, (d - d0) / (d1 - d0))) : 0;
+            double r0 = rf.DistAt(b[k]), r1 = rf.DistAt(b[k + 1]);
+            return Math.Max(b[k], Math.Min(b[k + 1], rf.TimeAtDist(r0 + (r1 - r0) * f)));
+        }
+
+        /// <summary>走行距離 target [m] に着く時刻 [s]</summary>
+        public double TimeAtDist(double target)
+        {
+            target = Math.Max(0, Math.Min(Total, target));
             int lo = 0, hi = N - 1;
             while (lo < hi) { int mid = (lo + hi) / 2; if (D[mid] < target) lo = mid + 1; else hi = mid; }
             if (lo == 0) return 0;
@@ -444,9 +486,10 @@ namespace Tk2Gui
                 if (i == _ref) { _tGap[i].Text = "基準"; _tGap[i].Foreground = Brushes.Gray; }
                 else
                 {
-                    // 同じ進み具合に基準の周回が着いた時刻との差 (＋ = 基準より遅れ)。ずらしているときは、揃えた位置での差を引く
+                    // 同じ所 (ラインの間の走った距離の割合) に基準の周回が着いた時刻との差 (＋ = 基準より遅れ)。
+                    // ずらしているとき (揃える位置をセクターの開始にしたとき) は、揃えた位置からの経過どうしの差 (揃えた位置で 0)
                     double ds = Shift(i) - Shift(_ref);
-                    double gap = tt - rf.TimeAtProgress(l.ProgressAt(tt)) - ds;
+                    double gap = tt - l.MatchTime(tt, rf) - ds;
                     if (ti >= l.LapTime && tr >= rf.LapTime) gap = l.LapTime - rf.LapTime - ds;
                     _tGap[i].Text = (gap >= 0 ? "+" : "-") + Math.Abs(gap).ToString("0.00", Inv);
                     _tGap[i].Foreground = gap > 0.005 ? Theme.Error : gap < -0.005 ? Theme.Ok : Brushes.Gray;

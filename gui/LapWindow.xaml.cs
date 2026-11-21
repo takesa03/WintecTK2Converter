@@ -35,6 +35,7 @@ namespace Tk2Gui
         public string[] Sectors { get; set; }
         public string LapTime { get; set; }
         public string Gap { get; set; }        // ジムカーナ: ベストとの差
+        public string BaseDiff { get; set; }   // 基準の周回 (初めは全体のベスト) とのラップタイムの差
         public string Driver { get; set; }     // ジムカーナ: この走行のドライバー
         public string Memo { get; set; }       // ジムカーナ: メモ
         public string MaxKmh { get; set; }
@@ -109,6 +110,9 @@ namespace Tk2Gui
         bool _readOnly;                                            // CSV を表示しているとき (ログがないので、分割・結合はできない)
         Task _saveChain = Task.CompletedTask;                     // ドライバー名の書き込みを順番に行うための鎖
         readonly HashSet<int> _collapsed = new HashSet<int>();   // 畳んでいるセッションの番号 (全セッション表示のとき)
+        double? _baseT;                                           // 基準の周回の開始時刻 (右クリックで選ぶ)。null = 全体のベスト
+        LapRecord _baseRec;                                       // 表を作るときに決めた基準の周回
+        DataGridTextColumn _baseCol;
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
         const double JstOffsetHours = 9;
 
@@ -804,7 +808,7 @@ namespace Tk2Gui
                         string name = r.Rec.IsGymRun ? "Session " + r.Sess.No + " / Heat " + r.Rec.LapNo + (drv.Length > 0 ? "  (" + drv + ")" : "")
                             : "Session " + r.Sess.No + " / Lap " + r.Rec.LapNo + (drv.Length > 0 ? "  (" + drv + ")" : "");
                         string label = (r.Rec.IsGymRun ? "S" + r.Sess.No + "-H" + r.Rec.LapNo : "S" + r.Sess.No + "-L" + r.Rec.LapNo) + (drv.Length > 0 ? " " + drv : "");
-                        list.Add(ReplayLap.Build(name, label, r.Rec.StartT, r.Rec.LapTime.Value, g, def.Lat0, def.Lon0, ReplayWindow.Palette[ci++]));
+                        list.Add(ReplayLap.Build(name, label, r.Rec.StartT, r.Rec.LapTime.Value, g, def.Lat0, def.Lon0, ReplayWindow.Palette[ci++]).WithMarks(r.Rec));
                     }
                     return list;
                 });
@@ -873,6 +877,9 @@ namespace Tk2Gui
             SplitItem.Header = canSplit ? "この周回 (" + r.Lap + ") の前でセッションを分割" : "この周回の前でセッションを分割 (周回の行を右クリック)";
             MergeItem.IsEnabled = prev != null;
             MergeItem.Header = prev != null ? "Session " + s.No + " を Session " + prev.No + " と結合" : "前のセッションと結合 (対象の行を右クリック)";
+            SetBaseItem.IsEnabled = r != null && !r.IsHeader && r.Rec != null && r.Rec.LapTime.HasValue && !ReferenceEquals(r.Rec, _baseRec);
+            SetBaseItem.Header = SetBaseItem.IsEnabled ? "この" + (r.Rec.IsGymRun ? "走行" : "周回") + " (" + r.Lap + ") を基準にする (基準差の列)" : "この周回を基準にする (基準差の列。タイムのある周回の行を右クリック)";
+            ResetBaseItem.IsEnabled = _baseT.HasValue;
             ResetEditsItem.IsEnabled = !_readOnly && s != null && _edits.ContainsKey(SessionEdits.Key(s.FilePath ?? "")) && !_edits[SessionEdits.Key(s.FilePath)].IsEmpty;
         }
 
@@ -982,6 +989,8 @@ namespace Tk2Gui
                 LapGrid.Columns.Add(MarkCol(_res.SectorNames[k], "Sectors[" + k.ToString(Inv) + "]", "S" + k.ToString(Inv), 72));
             LapGrid.Columns.Add(MarkCol(gym ? "タイム" : "ラップ", "LapTime", "LapTime", 90));
             if (gym) LapGrid.Columns.Add(new DataGridTextColumn { Header = "差", Binding = new System.Windows.Data.Binding("Gap"), Width = 64 });
+            _baseCol = new DataGridTextColumn { Header = "基準差", Binding = new System.Windows.Data.Binding("BaseDiff"), Width = 130 };
+            LapGrid.Columns.Add(_baseCol);       // 基準の周回 (初めは全体のベスト。右クリックで変える) とのラップタイムの差
             if (gym) LapGrid.Columns.Add(new DataGridTextColumn { Header = "ドライバー", Binding = new System.Windows.Data.Binding("Driver"), Width = 90 });
             LapGrid.Columns.Add(MarkCol("最高 km/h", "MaxKmh", "MaxKmh", 90));
             if (gym) LapGrid.Columns.Add(new DataGridTextColumn { Header = "メモ", Binding = new System.Windows.Data.Binding("Memo"), Width = 200 });
@@ -1087,6 +1096,52 @@ namespace Tk2Gui
             RefreshLaps();
         }
 
+        // ---- 基準の周回 (タイム差の列) ----
+
+        /// <summary>基準の周回: 右クリックで選んだ周回 (解析し直しても開始時刻で探す)。無ければ全体のベスト</summary>
+        LapRecord BaseLap()
+        {
+            if (_res == null) return null;
+            List<LapRecord> all = _res.Sessions.SelectMany(s => s.Laps).Where(l => l.LapTime.HasValue).ToList();
+            if (_baseT.HasValue)
+            {
+                LapRecord b = all.FirstOrDefault(l => Math.Abs(l.StartT - _baseT.Value) < 0.05);
+                if (b != null) return b;
+            }
+            return all.FirstOrDefault(l => l.IsBestLap);
+        }
+
+        string BaseName(LapRecord l)
+        {
+            SessionRecord s = _res.Sessions.FirstOrDefault(x => x.Laps.Contains(l));
+            string name = "S" + (s != null ? s.No : l.Session).ToString(Inv) + (l.IsGymRun ? "-H" : "-L") + l.LapNo.ToString(Inv);
+            return _baseT.HasValue ? name : "ベスト " + name;
+        }
+
+        void SetBase_Click(object sender, RoutedEventArgs e)
+        {
+            LapRow r = LapGrid.SelectedItem as LapRow;
+            if (r == null || r.Rec == null || !r.Rec.LapTime.HasValue) return;
+            _baseT = r.Rec.StartT;
+            RefreshKeep(r.Rec);
+        }
+
+        void ResetBase_Click(object sender, RoutedEventArgs e)
+        {
+            LapRow r = LapGrid.SelectedItem as LapRow;
+            _baseT = null;
+            RefreshKeep(r != null ? r.Rec : null);
+        }
+
+        // 表を作り直して、同じ周回を選び直す
+        void RefreshKeep(LapRecord keep)
+        {
+            RefreshLaps();
+            List<LapRow> rows = LapGrid.ItemsSource as List<LapRow>;
+            LapRow again = keep == null || rows == null ? null : rows.FirstOrDefault(x => ReferenceEquals(x.Rec, keep));
+            if (again != null) { LapGrid.SelectedItem = again; LapGrid.ScrollIntoView(again); }
+        }
+
         LapRow ToRow(LapRecord l, SessionRecord sess)
         {
             LapRow r = new LapRow
@@ -1098,6 +1153,8 @@ namespace Tk2Gui
                 LapTime = LapAnalyzer.FormatTime(l.LapTime ?? l.PartialTime),
                 MaxKmh = l.MaxKmh > 0 ? l.MaxKmh.ToString("0.0", Inv) : "",
                 Gap = l.Gap.HasValue ? (Math.Abs(l.Gap.Value) < 0.0005 ? "-" : l.Gap.Value.ToString("+0.000;-0.000", Inv)) : "",     // ベストの対象外の走行はベストより速いこともある (−)
+                BaseDiff = ReferenceEquals(l, _baseRec) ? "基準"
+                    : _baseRec != null && l.LapTime.HasValue ? (l.LapTime.Value - _baseRec.LapTime.Value).ToString("+0.000;-0.000;±0.000", Inv) : "",
                 Driver = l.IsGymRun ? LapAnalyzer.DriverOf(sess, l) : "",
                 Memo = l.Memo ?? "",
                 Note = l.Note,
@@ -1116,6 +1173,9 @@ namespace Tk2Gui
         void RefreshLaps()
         {
             if (_res == null) { LapGrid.ItemsSource = null; return; }
+            _baseRec = BaseLap();
+            if (_baseCol != null)
+                _baseCol.Header = _baseRec == null ? "基準差" : "基準差 (" + BaseName(_baseRec) + ")";
             List<LapRow> list = new List<LapRow>();
             bool sort = SortCheck.IsChecked == true;
             if (_res.IsGymkhana && sort)

@@ -61,7 +61,16 @@
             <Button Content="地図 (航空写真) を開く" Padding="10,4" Margin="0,0,4,4" Click="Map_Click"
                     ToolTip="2 台の位置を航空写真の上で比べる画面を開きます (この画面の再生と一緒に動きます)"/>
             <Button Content="並べて配置" Padding="10,4" Margin="0,0,0,4" Click="Arrange_Click"
-                    ToolTip="この画面を上に大きく、ラップ・セクタータイムを左下、地図を右下に並べます (この画面があるモニターに合わせます。地図が開いていなければ開きます)"/>
+                    ToolTip="この画面を上に大きく、ラップ・セクタータイムを左下、地図を右下に並べます (この画面があるモニターに合わせます。地図が開いていなければ開きます)。右クリックで、手で直した今の並べ方を保存したり、初期の並べ方に戻したりできます">
+                <Button.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="現在のレイアウトを保存" Click="ArrangeSave_Click"
+                                  ToolTip="今のこの画面・ラップ・セクタータイム・地図の位置と大きさを覚えて、次からはその並べ方で並べます"/>
+                        <MenuItem Header="初期レイアウトを保存" Click="ArrangeReset_Click"
+                                  ToolTip="保存した並べ方を消して初期の並べ方に戻し、次からも初期の並べ方で並べます"/>
+                    </ContextMenu>
+                </Button.ContextMenu>
+            </Button>
         </WrapPanel>
         <DockPanel Grid.Row="2" Margin="0,2,0,0">
             <TextBlock Name="TimeText" DockPanel.Dock="Right" Width="200" TextAlignment="Right" VerticalAlignment="Center" FontFamily="Consolas"/>

@@ -165,6 +165,9 @@
                                 <MenuItem Header="選んだ 2 つを動画で比較..." Click="VideoCompare_Click"/>
                                 <MenuItem Header="走行動画の時刻合わせ・切り出し..." Click="VideoSync_Click"/>
                                 <Separator/>
+                                <MenuItem x:Name="SetBaseItem" Header="この周回を基準にする (基準差の列)" Click="SetBase_Click"/>
+                                <MenuItem x:Name="ResetBaseItem" Header="基準を全体のベストに戻す" Click="ResetBase_Click"/>
+                                <Separator/>
                                 <MenuItem x:Name="SplitItem" Header="この周回の前でセッションを分割" Click="Split_Click"/>
                                 <MenuItem x:Name="MergeItem" Header="前のセッションと結合" Click="Merge_Click"/>
                                 <Separator/>

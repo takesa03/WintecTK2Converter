@@ -464,7 +464,7 @@ namespace Tk2Gui
                     Lane l = _lanes[i];
                     string drv = LapAnalyzer.DriverOf(l.Sess, l.Lap);
                     string label = ab[i] + " " + VideoKit.Label(l.Sess, l.Lap) + (drv.Length > 0 ? " " + drv : "");
-                    laps.Add(ReplayLap.Build(label, label, l.Lap.StartT, l.Lap.LapTime.Value, l.Gps, _def.Lat0, _def.Lon0, l.Color));
+                    laps.Add(ReplayLap.Build(label, label, l.Lap.StartT, l.Lap.LapTime.Value, l.Gps, _def.Lat0, _def.Lon0, l.Color).WithMarks(l.Lap));
                 }
                 _map = new ReplayWindow(_def, laps);
                 _map.AttachClock(() => _tau);
@@ -529,6 +529,7 @@ namespace Tk2Gui
             {
                 Place(Origin, _originBounds.Left, _originBounds.Top, _originBounds.Width, _originBounds.Height);
                 if (_originState == WindowState.Maximized) Origin.WindowState = WindowState.Maximized;
+                Settings.KeepBounds(Origin, true);      // 元の位置に戻したので、これからは普通に保存する
                 Origin.Activate();
             }
             catch (Exception) { }
@@ -543,21 +544,96 @@ namespace Tk2Gui
             w.Height = Math.Max(height, w.MinHeight);
         }
 
-        /// <summary>動画を上半分に大きく、左下にラップ・セクタータイム、右下に地図を並べる</summary>
+        // 「並べて配置」の並べ方の保存先 (設定ファイルの values)。この画面・呼び出し元・地図の 3 つを、作業領域に対する割合
+        // "左,上,幅,高さ|左,上,幅,高さ|左,上,幅,高さ" で持つ。無ければ初期の並べ方
+        const string ArrangeKey = "VideoCompare.Arrange";
+
+        /// <summary>初期の並べ方: 動画を上に大きく、左下にラップ・セクタータイム、右下に地図 (作業領域に対する割合)</summary>
+        static Rect[] DefaultArrange()
+        {
+            const double topH = 0.63, leftW = 0.6;
+            return new[] { new Rect(0, 0, 1, topH), new Rect(0, topH, leftW, 1 - topH), new Rect(leftW, topH, 1 - leftW, 1 - topH) };
+        }
+
+        static Rect[] LoadArrange()
+        {
+            string s = Settings.Get(ArrangeKey);
+            if (string.IsNullOrEmpty(s)) return null;
+            string[] parts = s.Split('|');
+            if (parts.Length != 3) return null;
+            Rect[] rs = new Rect[3];
+            for (int i = 0; i < 3; i++)
+            {
+                string[] v = parts[i].Split(',');
+                double x, y, w, h;
+                if (v.Length != 4 || !double.TryParse(v[0], System.Globalization.NumberStyles.Float, Inv, out x)
+                    || !double.TryParse(v[1], System.Globalization.NumberStyles.Float, Inv, out y)
+                    || !double.TryParse(v[2], System.Globalization.NumberStyles.Float, Inv, out w)
+                    || !double.TryParse(v[3], System.Globalization.NumberStyles.Float, Inv, out h)
+                    || w < 0.05 || h < 0.05 || x < -1 || y < -1 || x > 2 || y > 2) return null;     // 壊れた値・極端な値は使わない
+                rs[i] = new Rect(x, y, w, h);
+            }
+            return rs;
+        }
+
+        /// <summary>動画・ラップ・セクタータイム・地図を、保存した並べ方 (無ければ初期の並べ方) で並べる</summary>
         void Arrange_Click(object sender, RoutedEventArgs e)
+        {
+            Arrange(LoadArrange() ?? DefaultArrange());
+        }
+
+        void Arrange(Rect[] f)
         {
             SaveOrigin();
             OpenMap();
             Rect r = WorkArea();
-            double topH = Math.Round(r.Height * 0.63);
-            double botH = r.Height - topH;
-            double leftW = Math.Round(r.Width * 0.6);
-            Place(this, r.Left, r.Top, r.Width, topH);
-            Place(Origin, r.Left, r.Top + topH, leftW, botH);
-            Place(_map, r.Left + leftW, r.Top + topH, r.Width - leftW, botH);
+            Window[] ws = { this, Origin, _map };
+            for (int i = 0; i < ws.Length; i++)
+            {
+                if (ws[i] == null) continue;
+                // 割合を画素に。隣どうしの境目がずれないように、端の位置を丸めてから幅を出す
+                double x0 = Math.Round(r.Left + r.Width * f[i].Left), x1 = Math.Round(r.Left + r.Width * f[i].Right);
+                double y0 = Math.Round(r.Top + r.Height * f[i].Top), y1 = Math.Round(r.Top + r.Height * f[i].Bottom);
+                Place(ws[i], x0, y0, x1 - x0, y1 - y0);
+                Settings.KeepBounds(ws[i], false);       // 並べた位置は、それぞれの画面の位置・大きさとしては保存しない
+            }
             if (Origin != null) Origin.Activate();
             if (_map != null) _map.Activate();
             Activate();
+        }
+
+        // 「並べて配置」の右クリック: 今の並べ方を保存 / 初期の並べ方に戻して保存
+        void ArrangeSave_Click(object sender, RoutedEventArgs e)
+        {
+            Rect r = WorkArea();
+            if (r.Width <= 0 || r.Height <= 0) return;
+            OpenMap();
+            Window[] ws = { this, Origin, _map };
+            Rect[] def = LoadArrange() ?? DefaultArrange();
+            List<string> parts = new List<string>();
+            for (int i = 0; i < ws.Length; i++)
+            {
+                Rect f = def[i];      // 呼び出し元が無いときなどは、前の値のまま
+                Window w = ws[i];
+                if (w != null && w.IsLoaded)
+                {
+                    Rect b = w.WindowState == WindowState.Normal ? new Rect(w.Left, w.Top, w.ActualWidth, w.ActualHeight) : w.RestoreBounds;
+                    if (!b.IsEmpty && b.Width > 0 && b.Height > 0)
+                        f = new Rect((b.Left - r.Left) / r.Width, (b.Top - r.Top) / r.Height, b.Width / r.Width, b.Height / r.Height);
+                }
+                parts.Add(string.Format(Inv, "{0:0.#####},{1:0.#####},{2:0.#####},{3:0.#####}", f.Left, f.Top, f.Width, f.Height));
+            }
+            Settings.Set(ArrangeKey, string.Join("|", parts));
+            Settings.Save();
+            Status("今の並べ方を保存しました。次からは「並べて配置」とこの画面を開いたときに、この並べ方にします (この画面があるモニターの作業領域に対する割合で覚えます)。");
+        }
+
+        void ArrangeReset_Click(object sender, RoutedEventArgs e)
+        {
+            Settings.Set(ArrangeKey, null);
+            Settings.Save();
+            Arrange(DefaultArrange());
+            Status("初期の並べ方に戻しました。次からもこの並べ方にします。");
         }
     }
 }

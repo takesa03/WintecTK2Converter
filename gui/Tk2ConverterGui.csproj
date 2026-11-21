@@ -26,12 +26,14 @@
     <None Include="overlay_default.ini" CopyToOutputDirectory="PreserveNewest" />
     <!-- 初めての人向けの機能概要と操作マニュアル (発行フォルダに入れる) -->
     <None Include="..\docs\MANUAL.md" Link="マニュアル.md" CopyToOutputDirectory="PreserveNewest" />
+    <!-- バージョン履歴 (発行フォルダに入れる。版を上げたら docs/CHANGELOG.md に書き足す) -->
+    <None Include="..\docs\CHANGELOG.md" Link="バージョン履歴.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- バージョン: Major.Minor.Build はここを直接編集して手動で管理する。リビジョン (4 桁目) はビルドのたびに 1 つ増やす (revision.txt)。
        WPF の XAML コンパイル用の一時プロジェクト (*_wpftmp.csproj) でも走って二重に増えるため、本体のときだけ実行する -->
   <PropertyGroup>
-    <VersionMajorMinorBuild>1.9.1</VersionMajorMinorBuild>
+    <VersionMajorMinorBuild>1.10.0</VersionMajorMinorBuild>
     <RevisionFile>$(MSBuildProjectDirectory)\revision.txt</RevisionFile>
   </PropertyGroup>
 

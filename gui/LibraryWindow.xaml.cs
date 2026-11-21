@@ -307,7 +307,7 @@ namespace Tk2Gui
                     double lt = ln.Lap.LapTime ?? ln.Lap.PartialTime ?? (ln.Lap.EndT - ln.Lap.StartT);
                     laps.Add(ReplayLap.Build(day + " Session " + ln.Sess.No + " / " + k + (drv.Length > 0 ? "  (" + drv + ")" : ""),
                                              day + " S" + ln.Sess.No + "-" + k + (drv.Length > 0 ? " " + drv : ""),
-                                             ln.Lap.StartT, lt, ln.Gps, def.Lat0, def.Lon0, ReplayWindow.Palette[i]));
+                                             ln.Lap.StartT, lt, ln.Gps, def.Lat0, def.Lon0, ReplayWindow.Palette[i]).WithMarks(ln.Lap));
                 }
                 ReplayWindow w = new ReplayWindow(def, laps);
                 w.Show();
