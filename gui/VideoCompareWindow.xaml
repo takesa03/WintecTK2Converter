@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="動画で比較" Height="700" Width="1500" MinHeight="420" MinWidth="900"
         FontFamily="Yu Gothic UI, Meiryo UI, Segoe UI" FontSize="13" Icon="AppIcon.ico">
-    <Grid Margin="10">
+    <Grid Name="RootGrid" Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
@@ -12,10 +12,15 @@
         </Grid.RowDefinitions>
 
         <!-- 2 つの動画 (横並び / 縦並び) -->
-        <Grid Name="PaneGrid" Grid.Row="0"/>
+        <Grid Name="PaneGrid" Grid.Row="0" Focusable="True" FocusVisualStyle="{x:Null}"/>
+        <!-- 最大表示に入った直後だけ出す操作の案内 -->
+        <Border Name="FullHint" Grid.Row="0" Visibility="Collapsed" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                Margin="0,0,0,40" Padding="16,8" CornerRadius="6" Background="#B0000000">
+            <TextBlock Name="FullHintText" Foreground="White" FontSize="15" TextAlignment="Center"/>
+        </Border>
 
         <!-- 再生の操作 -->
-        <WrapPanel Grid.Row="1" Margin="0,8,0,0">
+        <WrapPanel Name="Controls" Grid.Row="1" Margin="0,8,0,0">
             <Button Content="⏮" Padding="10,4" Margin="0,0,4,4" Click="Restart_Click" ToolTip="最初から"/>
             <Button Content="−1 秒" Tag="-1" Padding="8,4" Margin="0,0,4,4" Click="Step_Click"/>
             <Button Content="◀ コマ" Tag="-f" Padding="8,4" Margin="0,0,4,4" Click="Step_Click" ToolTip="1 コマ戻す (← キー)"/>
@@ -43,7 +48,7 @@
                 <ComboBoxItem Content="なし"/>
                 <ComboBoxItem Content="左右に分ける (A = 左, B = 右)"/>
             </ComboBox>
-            <TextBlock Text="並べ方" VerticalAlignment="Center" Margin="0,0,6,4"/>
+            <TextBlock Name="LayoutLabel" Text="並べ方" VerticalAlignment="Center" Margin="0,0,6,4"/>
             <ComboBox Name="LayoutCombo" Width="80" SelectedIndex="0" Margin="0,0,14,4" SelectionChanged="Layout_Changed">
                 <ComboBoxItem Content="左右"/>
                 <ComboBoxItem Content="上下"/>
@@ -56,6 +61,8 @@
                       Checked="SubCheck_Changed" Unchecked="SubCheck_Changed"
                       ToolTip="走行動画の時刻合わせで登録したサブ動画 (ペダルなど) を、それぞれの映像に重ねます (音声は出しません)"/>
             <CheckBox Name="LoopCheck" Content="繰り返す" IsChecked="True" VerticalAlignment="Center" Margin="0,0,14,4"/>
+            <Button Content="⛶ 最大表示" Padding="10,4" Margin="0,0,4,4" Click="Full_Click"
+                    ToolTip="選んでいる映像を、重ねる表示ごと画面いっぱいに出します (F キー、映像のダブルクリックでも)。Esc で戻ります。2 つのときは、映像をクリックして選んだ方を出します (Tab で切り替え)"/>
             <Button Content="表示の編集..." Padding="10,4" Margin="0,0,4,4" Click="EditLayout_Click"
                     ToolTip="重ねる表示の ON/OFF と位置を変えます (A の映像で確認します。変えた内容は両方に反映)"/>
             <Button Content="地図 (航空写真) を開く" Padding="10,4" Margin="0,0,4,4" Click="Map_Click"
@@ -72,7 +79,7 @@
                 </Button.ContextMenu>
             </Button>
         </WrapPanel>
-        <DockPanel Grid.Row="2" Margin="0,2,0,0">
+        <DockPanel Name="TimeRow" Grid.Row="2" Margin="0,2,0,0">
             <TextBlock Name="TimeText" DockPanel.Dock="Right" Width="200" TextAlignment="Right" VerticalAlignment="Center" FontFamily="Consolas"/>
             <Slider Name="TimeSlider" Minimum="0" Maximum="1" ValueChanged="Slider_Changed" IsMoveToPointEnabled="True" VerticalAlignment="Center"/>
         </DockPanel>

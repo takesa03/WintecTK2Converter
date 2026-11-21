@@ -169,6 +169,9 @@ namespace Tk2Gui
             else if (_noBounds.Add(w)) w.Closed += (s, e) => _noBounds.Remove(w);
         }
 
+        /// <summary>閉じるときに位置・大きさを保存するか (KeepBounds の今の状態)</summary>
+        public static bool KeepsBounds(Window w) { return w != null && !_noBounds.Contains(w); }
+
         // 前回の位置が、今の画面 (複数モニターを含む全体) の中に十分入っているか (モニターを外したときなどに、画面の外へ出ないように)
         static bool OnScreen(Bounds b)
         {

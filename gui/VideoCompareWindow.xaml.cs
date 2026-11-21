@@ -12,7 +12,8 @@ using System.Windows.Media;
 namespace Tk2Gui
 {
     // =====================================================================
-    //  動画で比較: 2 つの周回・走行の動画を並べて同時に再生する
+    //  動画で比較: 2 つの周回・走行の動画を並べて同時に再生する (1 つだけなら、その動画を再生する)
+    //  映像は、重ねる表示ごと画面いっぱいに出せる (最大表示。VideoCompareWindow.Full.cs)
     //  時計は「周回の開始 (ラインの通過) からの秒 τ」。両方とも τ = 0 でラインを通る。
     //  それぞれの動画の時刻 = 周回の開始 (ログの秒) + τ − 動画の t0
     //  映像は ffmpeg で読み、この画面の時計に合わせて表示する (コマ送り可)。
@@ -34,6 +35,9 @@ namespace Tk2Gui
             internal OverlayData Data;
             internal VideoPane Pane;
             internal FrameworkElement Cell;
+            internal Border Frame;                  // 選んでいる映像の枠 (2 つのとき、選んだ方を色で囲む)
+            internal TextBlock Cap;                 // 映像の上の見出し (最大表示では隠す)
+            internal int ReaderWidth;               // 映像を読む幅 (最大表示では大きく読み直す)
             internal double Shown = double.NaN;     // 表示中のコマの τ
             internal DateTime LastSeek;
             internal AudioClip Audio;               // 読み込んだ音声 (48 kHz ステレオ)
@@ -95,11 +99,15 @@ namespace Tk2Gui
                 l.Name = ab[i] + "  " + VideoKit.Label(l.Sess, l.Lap) + (drv.Length > 0 ? "  " + drv : "") + "   " + LapAnalyzer.FormatTime(l.Lap.LapTime);
                 l.Pane = new VideoPane();
                 TextBlock cap = new TextBlock { Text = l.Name, FontWeight = FontWeights.Bold, FontSize = 14, Foreground = new SolidColorBrush(l.Color), Margin = new Thickness(2, 0, 0, 4) };
-                DockPanel dp = new DockPanel { Margin = new Thickness(3) };
+                DockPanel dp = new DockPanel();
                 DockPanel.SetDock(cap, Dock.Top);
                 dp.Children.Add(cap); dp.Children.Add(l.Pane);
-                l.Cell = dp;
-                PaneGrid.Children.Add(dp);
+                Border fr = new Border { Child = dp, Padding = new Thickness(1), Margin = new Thickness(2), BorderThickness = new Thickness(2), BorderBrush = Brushes.Transparent };
+                int idx = i;
+                fr.PreviewMouseLeftButtonDown += (s, e) => Pane_MouseDown(idx, e);
+                l.Cap = cap; l.Frame = fr;
+                l.Cell = fr;
+                PaneGrid.Children.Add(fr);
                 if (layout != null)
                 {
                     try
@@ -110,7 +118,7 @@ namespace Tk2Gui
                 }
             }
             string kind = def.IsGymkhana ? "走行" : "周回";
-            Title = "動画で比較 - " + string.Join("  /  ", lanes.Select(l => VideoKit.Label(l.Sess, l.Lap))) + "  " + App.VersionText;
+            Title = (lanes.Count == 1 ? "動画で見る - " : "動画で比較 - ") + string.Join("  /  ", lanes.Select(l => VideoKit.Label(l.Sess, l.Lap))) + "  " + App.VersionText;
 
             Settings.Binder st = new Settings.Binder("VideoCompare");
             st.Combo(SpeedCombo, "Speed");
@@ -119,8 +127,20 @@ namespace Tk2Gui
             st.Check(OverlayCheck, "Overlay");
             OverlayPrefs.BindGraph(GraphCheck, () => { foreach (Lane l in _lanes) l.Pane.RefreshOverlay(); });   // 速度のグラフ (書き出し・時刻合わせと共通)
             st.Check(LoopCheck, "Loop");
+            if (lanes.Count == 1)
+            {
+                // 1 つだけ: B の音・左右に分ける・並べ方は使わない
+                ((ComboBoxItem)AudioCombo.Items[2]).Visibility = Visibility.Collapsed;
+                ((ComboBoxItem)AudioCombo.Items[4]).Visibility = Visibility.Collapsed;
+                LayoutLabel.Visibility = Visibility.Collapsed; LayoutCombo.Visibility = Visibility.Collapsed;
+                // 2 つのとき用の音声の設定 (B だけ・左右) は、ここでは「両方」(= A の音) にして、閉じるときに戻して保存する
+                int savedAudio = AudioCombo.SelectedIndex == 2 || AudioCombo.SelectedIndex == 4 ? AudioCombo.SelectedIndex : -1;
+                if (savedAudio >= 0) AudioCombo.SelectedIndex = 0;
+                Closing += (s, e) => { if (savedAudio >= 0 && AudioCombo.SelectedIndex == 0) AudioCombo.SelectedIndex = savedAudio; };   // 設定の保存 (Track) より先に登録
+            }
             Settings.Track(this, "VideoCompareWindow", st.SaveAll);
             ApplyLayout();
+            SelectLane(0);
             Speed_Changed(null, null);
             Audio_Changed(null, null);
 
@@ -141,7 +161,10 @@ namespace Tk2Gui
                 if (_map != null) { try { _map.Close(); } catch (Exception) { } }
                 RestoreOrigin();
             };
-            Status(string.Format(Inv, "両方とも、{0}の開始 (ラインの通過) を 0 秒にして同時に再生します。「揃える位置」でセクターの開始に揃えることもできます。前後に {1} 秒の余白。スペース = 再生・一時停止、← → = コマ送り、1 / 2 / 3 / 4 / 0 = 音声 A / B / 両方 / 左右 / なし。", kind, Before));
+            if (lanes.Count == 1)
+                Status(string.Format(Inv, "{0}の開始 (ラインの通過) を 0 秒にして再生します。「揃える位置」でセクターの開始からにすることもできます。前後に {1} 秒の余白。スペース = 再生・一時停止、← → = コマ送り、Shift + ← → = 1 秒、F・映像のダブルクリック = 最大表示 (Esc で戻る)。", kind, Before));
+            else
+                Status(string.Format(Inv, "両方とも、{0}の開始 (ラインの通過) を 0 秒にして同時に再生します。「揃える位置」でセクターの開始に揃えることもできます。前後に {1} 秒の余白。スペース = 再生・一時停止、← → = コマ送り、Shift + ← → = 1 秒、1 / 2 / 3 / 4 / 0 = 音声 A / B / 両方 / 左右 / なし。映像をクリックして選び、F・ダブルクリック = その映像を最大表示 (Esc で戻る、Tab で切り替え)。", kind, Before));
         }
 
         static VideoCompareWindow _current;
@@ -162,7 +185,8 @@ namespace Tk2Gui
                 try
                 {
                     ln.Vi = await Task.Run(() => FfVideo.Probe(ff, ln.Video.Path));
-                    ln.Reader = new FrameReader(ff, ln.Video.Path, ln.Vi, 960);
+                    ln.ReaderWidth = NormalReaderWidth;
+                    ln.Reader = new FrameReader(ff, ln.Video.Path, ln.Vi, ln.ReaderWidth);
                     if (ln.Data != null)
                     {
                         OverlayLayout lay = _layout; OverlayData d = ln.Data; double fps = ln.Vi.Fps;
@@ -209,10 +233,12 @@ namespace Tk2Gui
 
         void ApplyLayout()
         {
+            if (_full >= 0) { ApplyFullLayout(); return; }
             PaneGrid.RowDefinitions.Clear(); PaneGrid.ColumnDefinitions.Clear();
             bool vertical = LayoutCombo.SelectedIndex == 1;
             for (int i = 0; i < _lanes.Count; i++)
             {
+                _lanes[i].Cell.Visibility = Visibility.Visible;
                 if (vertical) PaneGrid.RowDefinitions.Add(new RowDefinition());
                 else PaneGrid.ColumnDefinitions.Add(new ColumnDefinition());
                 Grid.SetRow(_lanes[i].Cell, vertical ? i : 0);
@@ -383,23 +409,38 @@ namespace Tk2Gui
             if (it != null && double.TryParse(it.Tag as string, NumberStyles.Float, Inv, out v)) _clock.SetSpeed(v);
         }
 
-        void Audio_Changed(object sender, SelectionChangedEventArgs e) { _audioMode = Math.Max(0, AudioCombo.SelectedIndex); }
+        void Audio_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            int m = Math.Max(0, AudioCombo.SelectedIndex);
+            if (_lanes != null && _lanes.Count == 1 && (m == 2 || m == 4)) m = 0;     // 1 つだけのときは B が無いので A の音
+            _audioMode = m;
+        }
 
         void Overlay_Changed(object sender, RoutedEventArgs e) { if (IsLoaded) UpdateInfo(); }
 
         void OnKey(object sender, KeyEventArgs e)
         {
             if (e.OriginalSource is TextBox) return;
+            bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+            bool two = _lanes.Count > 1;
             switch (e.Key)
             {
                 case Key.Space: TogglePlay(); break;
-                case Key.Right: Step("f"); break;
-                case Key.Left: Step("-f"); break;
-                case Key.D1: case Key.NumPad1: AudioCombo.SelectedIndex = 1; break;
-                case Key.D2: case Key.NumPad2: AudioCombo.SelectedIndex = 2; break;
-                case Key.D3: case Key.NumPad3: AudioCombo.SelectedIndex = 0; break;
-                case Key.D0: case Key.NumPad0: AudioCombo.SelectedIndex = 3; break;
-                case Key.D4: case Key.NumPad4: AudioCombo.SelectedIndex = 4; break;
+                case Key.Right: Step(shift ? "1" : "f"); break;
+                case Key.Left: Step(shift ? "-1" : "-f"); break;
+                case Key.Home: SeekAll(-Before); break;
+                case Key.Up: if (e.OriginalSource is ComboBoxItem || e.OriginalSource is ComboBox) return; ChangeSpeed(+1); break;
+                case Key.Down: if (e.OriginalSource is ComboBoxItem || e.OriginalSource is ComboBox) return; ChangeSpeed(-1); break;
+                case Key.F: if (_full >= 0) ExitFull(); else EnterFull(_sel); break;
+                case Key.Escape: if (_full < 0) return; ExitFull(); break;
+                case Key.Tab: if (!two) return; SelectLane(1 - _sel); if (_full >= 0) EnterFull(_sel); break;
+                case Key.L: LoopCheck.IsChecked = LoopCheck.IsChecked != true; ShowHint(LoopCheck.IsChecked == true ? "繰り返す" : "繰り返さない"); break;
+                case Key.O: OverlayCheck.IsChecked = OverlayCheck.IsChecked != true; break;
+                case Key.D1: case Key.NumPad1: AudioCombo.SelectedIndex = 1; ShowAudioHint(); break;
+                case Key.D2: case Key.NumPad2: if (!two) return; AudioCombo.SelectedIndex = 2; ShowAudioHint(); break;
+                case Key.D3: case Key.NumPad3: AudioCombo.SelectedIndex = 0; ShowAudioHint(); break;
+                case Key.D0: case Key.NumPad0: AudioCombo.SelectedIndex = 3; ShowAudioHint(); break;
+                case Key.D4: case Key.NumPad4: if (!two) return; AudioCombo.SelectedIndex = 4; ShowAudioHint(); break;
                 default: return;
             }
             e.Handled = true;
@@ -579,6 +620,7 @@ namespace Tk2Gui
         /// <summary>動画・ラップ・セクタータイム・地図を、保存した並べ方 (無ければ初期の並べ方) で並べる</summary>
         void Arrange_Click(object sender, RoutedEventArgs e)
         {
+            if (_full >= 0) ExitFull();
             Arrange(LoadArrange() ?? DefaultArrange());
         }
 

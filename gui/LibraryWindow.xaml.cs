@@ -216,9 +216,9 @@ namespace Tk2Gui
 
         void UpdateButtons()
         {
-            bool two = _slot[0] != null && _slot[1] != null && !_busy;
-            MapButton.IsEnabled = two;
-            VideoButton.IsEnabled = two;
+            bool any = (_slot[0] != null || _slot[1] != null) && !_busy;     // 1 つだけでも見られる (2 つなら並べて比べる)
+            MapButton.IsEnabled = any;
+            VideoButton.IsEnabled = any;
         }
 
         // ---------------- 比べる ----------------
@@ -233,14 +233,15 @@ namespace Tk2Gui
             }
         }
 
-        /// <summary>A・B を、ログを解析し直して本物の周回にする (失敗したら null)</summary>
+        /// <summary>入っている A・B (1 つか 2 つ) を、ログを解析し直して本物の周回にする (失敗したら null)</summary>
         async Task<List<VideoCompareWindow.Lane>> MakeLanes(bool needVideo)
         {
-            LibLap[] s = { _slot[0], _slot[1] };
-            VideoStore.Entry[] v = { VideoOf(0), VideoOf(1) };
-            if (needVideo && (v[0] == null || v[1] == null))
+            int[] idx = Enumerable.Range(0, 2).Where(i => _slot[i] != null).ToArray();
+            LibLap[] s = idx.Select(i => _slot[i]).ToArray();
+            VideoStore.Entry[] v = idx.Select(i => VideoOf(i)).ToArray();
+            if (needVideo && v.Any(x => x == null))
             {
-                MessageBox.Show(this, "動画の無い周回があります (" + string.Join(", ", Enumerable.Range(0, 2).Where(i => v[i] == null).Select(i => i == 0 ? "A" : "B")) + ")。\n「地図で比較」なら動画なしで比べられます。",
+                MessageBox.Show(this, "動画の無い周回があります (" + string.Join(", ", Enumerable.Range(0, s.Length).Where(i => v[i] == null).Select(i => idx[i] == 0 ? "A" : "B")) + ")。\n「地図で比較」なら動画なしで比べられます。",
                                 "動画がありません", MessageBoxButton.OK, MessageBoxImage.Information);
                 return null;
             }
@@ -248,16 +249,16 @@ namespace Tk2Gui
             List<VideoCompareWindow.Lane> lanes = await Task.Run(() =>
             {
                 List<VideoCompareWindow.Lane> o = new List<VideoCompareWindow.Lane>();
-                for (int i = 0; i < 2; i++)
+                for (int i = 0; i < s.Length; i++)
                 {
                     List<GpsSample> g = Gps(s[i].Log);
                     SessionRecord sess; LapRecord lap; string[] names;
                     if (!Library.Resolve(s[i], g, out sess, out lap, out names, notes))
                     {
-                        notes.Add((i == 0 ? "A" : "B") + " の周回が、解析し直すと見つかりません (ログか条件が変わった)。「読み直す」を押してください。");
+                        notes.Add((idx[i] == 0 ? "A" : "B") + " の周回が、解析し直すと見つかりません (ログか条件が変わった)。「読み直す」を押してください。");
                         return null;
                     }
-                    o.Add(new VideoCompareWindow.Lane { Sess = sess, Lap = lap, Gps = g, Video = v[i], Color = ReplayWindow.Palette[i] });
+                    o.Add(new VideoCompareWindow.Lane { Sess = sess, Lap = lap, Gps = g, Video = v[i], Color = ReplayWindow.Palette[idx[i]] });
                 }
                 return o;
             });
@@ -273,7 +274,7 @@ namespace Tk2Gui
             {
                 List<VideoCompareWindow.Lane> lanes = await MakeLanes(true);
                 if (lanes == null) return;
-                LibCourse c = _slot[0].Course;
+                LibCourse c = (_slot[0] ?? _slot[1]).Course;
                 VideoCompareWindow w = new VideoCompareWindow(c.Def, c.Def.Gates.Count > 0 ? SectorNames(lanes) : null, lanes);
                 w.Origin = this;
                 w.Show();
@@ -296,9 +297,9 @@ namespace Tk2Gui
             {
                 List<VideoCompareWindow.Lane> lanes = await MakeLanes(false);
                 if (lanes == null) return;
-                CourseDefinition def = _slot[0].Course.Def;
+                CourseDefinition def = (_slot[0] ?? _slot[1]).Course.Def;
                 List<ReplayLap> laps = new List<ReplayLap>();
-                for (int i = 0; i < 2; i++)
+                for (int i = 0; i < lanes.Count; i++)
                 {
                     VideoCompareWindow.Lane ln = lanes[i];
                     string drv = LapAnalyzer.DriverOf(ln.Sess, ln.Lap);
@@ -307,7 +308,7 @@ namespace Tk2Gui
                     double lt = ln.Lap.LapTime ?? ln.Lap.PartialTime ?? (ln.Lap.EndT - ln.Lap.StartT);
                     laps.Add(ReplayLap.Build(day + " Session " + ln.Sess.No + " / " + k + (drv.Length > 0 ? "  (" + drv + ")" : ""),
                                              day + " S" + ln.Sess.No + "-" + k + (drv.Length > 0 ? " " + drv : ""),
-                                             ln.Lap.StartT, lt, ln.Gps, def.Lat0, def.Lon0, ReplayWindow.Palette[i]).WithMarks(ln.Lap));
+                                             ln.Lap.StartT, lt, ln.Gps, def.Lat0, def.Lon0, ln.Color).WithMarks(ln.Lap));
                 }
                 ReplayWindow w = new ReplayWindow(def, laps);
                 w.Show();

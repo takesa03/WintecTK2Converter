@@ -170,10 +170,22 @@ namespace Tk2Gui
         /// </summary>
         public void StartOverlay(Func<int, int, OverlayRenderer> make, Func<OverlayRenderer, double, OverlayState> stateAt, double aspect)
         {
+            StartOverlay(make, stateAt, aspect, _ovWidth);
+        }
+
+        // 描き直しに使うもの (SetOverlayWidth で幅を変えて描き直すため)
+        Func<int, int, OverlayRenderer> _ovMake;
+        Func<OverlayRenderer, double, OverlayState> _ovStateAt;
+        double _ovAspect;
+        int _ovWidth = 1280;
+
+        void StartOverlay(Func<int, int, OverlayRenderer> make, Func<OverlayRenderer, double, OverlayState> stateAt, double aspect, int width)
+        {
             StopOverlay();
             _stop = false;
+            _ovMake = make; _ovStateAt = stateAt; _ovAspect = aspect; _ovWidth = width;
             int gen = ++_gen;
-            int w = 1280, h = (int)Math.Round(w / Math.Max(0.5, aspect) / 2) * 2;
+            int w = width, h = (int)Math.Round(w / Math.Max(0.5, aspect) / 2) * 2;
             _ovW = w; _ovH = h;
             SetAspect(aspect);
             Dispatcher ui = Dispatcher;
@@ -181,6 +193,19 @@ namespace Tk2Gui
             t.SetApartmentState(ApartmentState.STA);
             _thread = t;
             t.Start();
+        }
+
+        /// <summary>
+        /// 重ねる表示を描く画像の幅を変える (既定 1280。画面いっぱいに出すときは大きく)。動いていれば描き直す
+        /// </summary>
+        public void SetOverlayWidth(int width)
+        {
+            width = Math.Max(640, width) / 2 * 2;
+            if (width == _ovWidth) return;
+            _ovWidth = width;
+            if (_ovMake == null || _thread == null) return;
+            StartOverlay(_ovMake, _ovStateAt, _ovAspect, width);
+            RefreshOverlay();
         }
 
         /// <summary>時刻 logT の表示を描いてもらう (NaN で消す)。何度呼んでも、描くのは最新の 1 つだけ</summary>

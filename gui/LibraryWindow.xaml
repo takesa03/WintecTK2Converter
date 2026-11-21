@@ -85,9 +85,10 @@
                     <Button Content="A と B を入れ替え" Padding="8,3" Margin="0,0,6,6" Click="Swap_Click"/>
                 </WrapPanel>
                 <WrapPanel Margin="0,6,0,0">
-                    <Button Name="VideoButton" Content="▶ 動画で比較" FontWeight="Bold" Padding="14,5" Margin="0,0,6,6" Click="VideoCompare_Click" IsEnabled="False"/>
+                    <Button Name="VideoButton" Content="▶ 動画で比較" FontWeight="Bold" Padding="14,5" Margin="0,0,6,6" Click="VideoCompare_Click" IsEnabled="False"
+                            ToolTip="A と B の動画を並べて同時に再生します。A か B の 1 つだけなら、その周回の動画だけを再生します"/>
                     <Button Name="MapButton" Content="地図で比較" Padding="10,5" Margin="0,0,6,6" Click="MapCompare_Click" IsEnabled="False"
-                            ToolTip="動画が無くても、航空写真の上で 2 つの周回を並べて再生します"/>
+                            ToolTip="動画が無くても、航空写真の上で 2 つの周回を並べて再生します (1 つだけでも再生できます)"/>
                 </WrapPanel>
             </StackPanel>
         </ScrollViewer>

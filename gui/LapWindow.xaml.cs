@@ -698,7 +698,7 @@ namespace Tk2Gui
             }
         }
 
-        // 選んだ 2 つの周回・走行を、時刻合わせした動画で並べて同時に再生する
+        // 選んだ 1 つか 2 つの周回・走行を、時刻合わせした動画で再生する (2 つなら並べて同時に)
         async void VideoCompare_Click(object sender, RoutedEventArgs e)
         {
             if (_busy) return;
@@ -710,15 +710,16 @@ namespace Tk2Gui
             if (_res == null || _def == null) return;
             List<LapRow> rows = LapGrid.SelectedItems.Cast<LapRow>().Where(r => r.Rec != null && r.Sess != null && !string.IsNullOrEmpty(r.Sess.FilePath)).ToList();
             List<LapRow> ok = rows.Where(r => r.Rec.Type == LapType.Normal && r.Rec.Valid && r.Rec.LapTime.HasValue).OrderBy(r => r.Rec.StartT).ToList();
-            if (ok.Count != 2)
+            if (ok.Count < 1 || ok.Count > 2)
             {
-                MessageBox.Show(this, "比べる周回・走行を、周回表で 2 つ選んでください (Ctrl を押しながらクリック)。\nOUT・未完・無効 (×) の周回は使えません。", "2 つ選んでください", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, "見る周回・走行を、周回表で 1 つか 2 つ選んでください (2 つは Ctrl を押しながらクリック。2 つ選ぶと並べて比べます)。\nOUT・未完・無効 (×) の周回は使えません。", "1 つか 2 つ選んでください", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
             // 動画を探す (前後の余白込み。無ければ周回だけでも)
             List<string> missing = new List<string>();
-            VideoStore.Entry[] vids = new VideoStore.Entry[2];
-            for (int i = 0; i < 2; i++)
+            int n = ok.Count;
+            VideoStore.Entry[] vids = new VideoStore.Entry[n];
+            for (int i = 0; i < n; i++)
             {
                 LapRecord r = ok[i].Rec;
                 vids[i] = VideoStore.Find(ok[i].Sess.FilePath, r.StartT - 5, r.EndT + 5);
@@ -733,10 +734,10 @@ namespace Tk2Gui
             _busy = true; UpdateButtons();
             try
             {
-                List<GpsSample>[] g = new List<GpsSample>[2];
-                for (int i = 0; i < 2; i++) { string p = ok[i].Sess.FilePath; g[i] = await Task.Run(() => LoadGps(p)); }
+                List<GpsSample>[] g = new List<GpsSample>[n];
+                for (int i = 0; i < n; i++) { string p = ok[i].Sess.FilePath; g[i] = await Task.Run(() => LoadGps(p)); }
                 List<VideoCompareWindow.Lane> lanes = new List<VideoCompareWindow.Lane>();
-                for (int i = 0; i < 2; i++)
+                for (int i = 0; i < n; i++)
                     lanes.Add(new VideoCompareWindow.Lane { Sess = ok[i].Sess, Lap = ok[i].Rec, Gps = g[i], Video = vids[i], Color = ReplayWindow.Palette[i] });
                 VideoCompareWindow w = new VideoCompareWindow(def, _res.SectorNames, lanes);
                 // Owner にすると常にこの画面より手前になるので付けない。閉じるときだけ一緒に閉じる
