@@ -75,6 +75,8 @@ namespace Tk2Gui
             st.Text(BeforeBox, "Before");
             st.Text(AfterBox, "After");
             st.Check(AudioCheck, "Audio");
+            st.Check(FadeCheck, "Fade");
+            st.Text(FadeBox, "FadeSec");
             st.Check(BurnCheck, "Burn");
             st.Check(MergeCheck, "Merge");
             st.Check(OverlayCheck, "Overlay");
@@ -369,6 +371,7 @@ namespace Tk2Gui
             double before = Num(BeforeBox, 5), after = Num(AfterBox, 5);
             bool audio = AudioCheck.IsChecked == true && _vi.HasAudio;
             bool burn = BurnCheck.IsChecked == true;
+            double fade = FadeCheck.IsChecked == true ? Num(FadeBox, 1) : 0;
             OverlayLayout layout = _layout;
             if (burn && layout == null)
             {
@@ -438,12 +441,12 @@ namespace Tk2Gui
                         {
                             using (OverlayFrameSource ov = new OverlayFrameSource(() => new OverlayRenderer(layout, d, w, h),
                                        (r, n) => d.At(clipT0 + n / fps, fps, r.TrailFrames), total, ct))
-                                FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio, ov, w, h, fps, sc, prog, ct);
+                                FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio, ov, w, h, fps, sc, prog, ct, fade);
                         });
                         if (sc != null) subLabel = " (表示・サブ動画入り)";
                     }
                     else
-                        await Task.Run(() => FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio, prog, ct));
+                        await Task.Run(() => FfVideo.ExportClip(ff, src, j.Item2, j.Item3, j.Item4, audio, prog, ct, fade));
                     VideoStore.Put(_log, new VideoStore.Entry { Path = j.Item4, T0 = t0 + j.Item2, Duration = j.Item3, ClipOf = src, Label = j.Item5 + (burn ? subLabel : ""), Overlay = burn });
                     done++;
                 }

@@ -151,6 +151,9 @@ namespace Tk2Gui
         [JsonPropertyName("id"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string Id { get; set; }
         [JsonPropertyName("name")] public string Name { get; set; } = "Course";
+        // 表示名 (動画の表示の [course] に出すコース名)。name (ファイル名の元) とは別。空なら出さない。指紋には含めない
+        [JsonPropertyName("displayName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string DisplayName { get; set; }
         // null または "circuit" = サーキット (中心線は閉じた輪)。"gymkhana" = ジムカーナ (中心線は始点と終点のある線)
         [JsonPropertyName("mode"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string Mode { get; set; }
@@ -232,6 +235,20 @@ namespace Tk2Gui
                 try { d.Save(path); } catch (Exception) { if (string.IsNullOrEmpty(d.Id)) d.Id = NewId(); }
             }
             return d;
+        }
+
+        /// <summary>保存してあるコース定義の表示名だけを書き換える (ほかの項目・ID はそのまま。指紋も変わらない)</summary>
+        public static void WriteDisplayName(string path, string name)
+        {
+            CourseDefinition d = Load(path);
+            d.DisplayName = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+            d.Save(path);
+        }
+
+        /// <summary>保存してあるコース定義の表示名 (無い・読めなければ null)。上書き保存で表示名を引き継ぐため</summary>
+        public static string ReadDisplayName(string path)
+        {
+            try { return File.Exists(path) ? Load(path).DisplayName : null; } catch (Exception) { return null; }
         }
 
         public const string GymkhanaMode = "gymkhana";

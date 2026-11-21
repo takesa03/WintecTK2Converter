@@ -198,11 +198,67 @@ namespace Tk2Gui
             // サーキットだけの設定 (セッションの分け方・通過の速度・遅い周回)。ジムカーナは向き・順番・走行距離で判定するので使わない
             Visibility circuitOnly = def.IsGymkhana ? Visibility.Collapsed : Visibility.Visible;
             PitStopLabel.Visibility = PitStopBox.Visibility = MinSpeedLabel.Visibility = MinSpeedBox.Visibility = SlowLapLabel.Visibility = SlowLapBox.Visibility = circuitOnly;
+            CourseNameBox.Text = def.DisplayName ?? "";
+            CourseNameBox.IsEnabled = _coursePath != null && !_readOnly;
             UpdateButtons();
+        }
+
+        // ---- 動画の表示に出すコース名・イベント名 ----
+
+        /// <summary>コース定義の表示名を保存する (ファイルの表示名だけを書き換える。ID・指紋は変わらない)</summary>
+        void CourseName_LostFocus(object sender, RoutedEventArgs e)
+        {
+            if (_def == null || _coursePath == null || _readOnly) return;
+            string v = CourseNameBox.Text.Trim();
+            if (v == (_def.DisplayName ?? "")) return;
+            try
+            {
+                CourseDefinition.WriteDisplayName(_coursePath, v);
+                _def.DisplayName = v.Length == 0 ? null : v;   // 開いている動画の画面にも次の描画から出る
+                Log("コースの表示名を保存しました: " + (v.Length == 0 ? "(なし)" : v));
+            }
+            catch (Exception ex) { Log("コースの表示名を保存できません: " + ex.Message); CourseNameBox.Text = _def.DisplayName ?? ""; }
+        }
+
+        string _eventLog;   // イベント名の欄が表しているログ
+
+        void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e) { ShowEvent(); }
+
+        /// <summary>一覧で選んだログ (選んでいなければ先頭のログ) のイベント名を欄に出す</summary>
+        void ShowEvent()
+        {
+            if (EventBox.IsKeyboardFocusWithin) return;   // 入力中は書き換えない
+            string p = FileList.SelectedItems.Count > 0 ? FileList.SelectedItems[0] as string
+                     : FileList.Items.Count > 0 ? FileList.Items[0] as string : null;
+            if (p == _eventLog && p != null) return;
+            _eventLog = p;
+            EventBox.Text = p == null ? "" : (LogFile.Load(p).Event ?? "");
+            EventBox.IsEnabled = p != null && !_readOnly;
+            EventLabel.Text = p == null || FileList.Items.Count < 2 ? "イベント名" : "イベント名 (" + System.IO.Path.GetFileName(p) + ")";
+        }
+
+        void Event_LostFocus(object sender, RoutedEventArgs e)
+        {
+            string p = _eventLog;
+            if (p == null || _readOnly) return;
+            string v = EventBox.Text.Trim();
+            try
+            {
+                string nv = v.Length == 0 ? null : v;
+                if (LogFile.Load(p).Event != nv)   // 変わっていなければ書かない (log.json を作らない)
+                {
+                    LogFile.Update(p, d => d.Event = nv);
+                    Log("イベント名を保存しました (" + System.IO.Path.GetFileName(p) + "): " + (v.Length == 0 ? "(なし)" : v));
+                }
+            }
+            catch (Exception ex) { Log("イベント名を保存できません: " + ex.Message); }
+            _eventLog = null;
+            ShowEvent();
         }
 
         void UpdateButtons()
         {
+            ShowEvent();
             AnalyzeButton.IsEnabled = !_busy && _def != null && FileList.Items.Count > 0;
             CsvButton.IsEnabled = !_busy && _res != null && _res.Sessions.Count > 0;
             PackButton.IsEnabled = CsvButton.IsEnabled && !_readOnly && _def != null;

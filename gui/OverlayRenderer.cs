@@ -218,6 +218,9 @@ namespace Tk2Gui
             _sectorBox = Rect.Empty;
             Bounds.Clear();
             if (L.Shown("map")) Part(dc, "map", c => DrawMap(c, st));
+            // コース名 (コース定義の表示名) とイベント名 (ログの log.json の event)。空なら何も描かない
+            if (L.Shown("course")) Part(dc, "course", c => DrawTitle(c, "course", D.CourseTitle));
+            if (L.Shown("event")) Part(dc, "event", c => DrawTitle(c, "event", D.EventName));
             if (L.Shown("speedometer")) Part(dc, "speedometer", c => DrawSpeed(c, st));
             if (L.Shown("gmeter")) Part(dc, "gmeter", c => DrawG(c, st));
             if (L.Shown("session")) Part(dc, "session", c => DrawSession(c, st));
@@ -441,6 +444,20 @@ namespace Tk2Gui
             }
             double r = s.Num("dotsize", 7) * U;
             dc.DrawEllipse(Br(s.Col("dot", "#FF0000")), null, tp(new Point(st.X, st.Y)), r, r);
+        }
+
+        /// <summary>1 行の文字だけの要素 ([course] コース名・[event] イベント名)。文字の幅に合わせて置き、背景もその幅</summary>
+        void DrawTitle(DrawingContext dc, string name, string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            text = text.Trim();
+            OverlaySection s = L[name];
+            double size = s.Num("size", 24) * U;
+            FormattedText ft = Ft(text, size, Colors.White);
+            double w = ft.WidthIncludingTrailingWhitespace;
+            Point p = Place(s, w, size);
+            PanelBack(dc, s, new Rect(p.X, p.Y, w, ft.Height));
+            Text(dc, text, size, s.Col("color", "#FFFFFF"), p.X, p.Y, 0, 0, Math.Max(1, size / 18), Colors.Black);
         }
 
         void DrawSession(DrawingContext dc, OverlayState st)

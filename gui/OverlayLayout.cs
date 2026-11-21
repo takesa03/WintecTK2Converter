@@ -114,7 +114,31 @@ namespace Tk2Gui
                 if (eq <= 0 || cur == null) continue;
                 cur.Values[line.Substring(0, eq).Trim()] = line.Substring(eq + 1).Trim();
             }
+            l.FillDefaults();
             return l;
+        }
+
+        // 後から足した要素の既定値 (前の版で保存したレイアウトに節やキーが無くても、既定の位置に出す)。
+        // 読み込んだ値として持つだけで、エディタで変えたキーのほかはファイルに書かない
+        static readonly Dictionary<string, string[]> Defaults = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            // コース名: コース図の左上 (既定の [map] は x = 20, y = 50 で、この文字の高さぶん下)
+            { "course", new[] { "show", "1", "anchor", "topleft", "x", "20", "y", "20", "size", "24", "color", "#FFFFFF",
+                                "background", "0", "panel", "#1F000000", "panelopacity", "0.12", "panelpad", "8" } },
+            // イベント名: 上の中央
+            { "event", new[] { "show", "1", "anchor", "top", "x", "0", "y", "15", "size", "30", "color", "#FFFFFF",
+                               "background", "0", "panel", "#1F000000", "panelopacity", "0.12", "panelpad", "8" } },
+        };
+
+        void FillDefaults()
+        {
+            foreach (KeyValuePair<string, string[]> d in Defaults)
+            {
+                OverlaySection s;
+                if (!Sections.TryGetValue(d.Key, out s)) { s = new OverlaySection(d.Key); Sections[d.Key] = s; }
+                for (int i = 0; i + 1 < d.Value.Length; i += 2)
+                    if (!s.Values.ContainsKey(d.Value[i])) s.Values[d.Value[i]] = d.Value[i + 1];
+            }
         }
 
         // ---------------- 書き込み (レイアウトエディタ用) ----------------

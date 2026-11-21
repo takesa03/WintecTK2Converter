@@ -161,6 +161,12 @@
                         <CheckBox Name="MergeCheck" Content="連続している周回を1つに結合" IsChecked="False" Margin="0,6,0,0"
                                   ToolTip="選んだ周回のうち、続いている周回 (例: L3・L4・L5) は 1 本にまとめ、間が空いた所で別の動画に分けます。前後の余白は、まとめた範囲の最初と最後にだけ付けます。外すと 1 周ずつ切り出します"/>
                         <CheckBox Name="AudioCheck" Content="音声も入れる" IsChecked="True" Margin="0,6,0,0"/>
+                        <WrapPanel Margin="0,6,0,0">
+                            <CheckBox Name="FadeCheck" Content="最初と最後をフェード" IsChecked="False" VerticalAlignment="Center" Margin="0,0,8,0"
+                                      ToolTip="切り出した動画の最初を黒からのフェードイン、最後を黒へのフェードアウトにします。音声も同じ長さで、無音から大きく・無音へ小さくします。焼き込む表示やサブ動画も画面ごといっしょにフェードします"/>
+                            <TextBox Name="FadeBox" Width="44" Text="1" Margin="0,0,4,0"/>
+                            <TextBlock Text="秒" VerticalAlignment="Center"/>
+                        </WrapPanel>
                         <CheckBox Name="BurnCheck" Content="速度・タイム・セクターを焼き込む" IsChecked="False" Margin="0,6,0,0"
                                   ToolTip="動画素材の書き出しと同じ表示 (同じレイアウトの設定) を映像に重ねて切り出します。サブ動画を開いていて「重ねる」が ON なら、サブ動画も同じ位置に入れます。表示は後から消せません。書き出しに時間がかかります。焼き込んだ動画は「動画で比較」には使いません (元の動画を使います)"/>
                         <TextBlock TextWrapping="Wrap" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,6,0,6"

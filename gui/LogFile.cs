@@ -50,6 +50,7 @@ namespace Tk2Gui
         [JsonPropertyName("version")] public int Version { get; set; } = CurrentVersion;
         [JsonPropertyName("log")] public string Log { get; set; }                                  // ログのファイル名 (確認用)
         [JsonPropertyName("imported")] public List<string> Imported { get; set; }                  // 取り込んだ前の版の付属ファイル
+        [JsonPropertyName("event")] public string Event { get; set; }                              // イベント名 (動画の表示の [event]。空なら書かない)
         [JsonPropertyName("courses")] public List<string> Courses { get; set; }                    // このログを解析したコース定義 (相対パス)
         [JsonPropertyName("params")] public LogParams Params { get; set; }                         // ラップ解析の条件 (最後に解析したとき)
         [JsonPropertyName("sessionEdits")] public SessionEditsData SessionEdits { get; set; }

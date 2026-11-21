@@ -119,9 +119,9 @@ namespace Tk2Gui
         /// progress には 0〜1 を渡す
         /// </summary>
         public static void ExportClip(string ffmpeg, string path, double start, double dur, string outPath, bool audio,
-                                      Action<double> progress, CancellationToken ct)
+                                      Action<double> progress, CancellationToken ct, double fade = 0)
         {
-            ExportClip(ffmpeg, path, start, dur, outPath, audio, null, 0, 0, 0, progress, ct);
+            ExportClip(ffmpeg, path, start, dur, outPath, audio, null, 0, 0, 0, null, progress, ct, fade);
         }
 
         /// <summary>
@@ -132,17 +132,27 @@ namespace Tk2Gui
                                       OverlayFrameSource overlay, int w, int h, double fps,
                                       Action<double> progress, CancellationToken ct)
         {
-            ExportClip(ffmpeg, path, start, dur, outPath, audio, overlay, w, h, fps, null, progress, ct);
+            ExportClip(ffmpeg, path, start, dur, outPath, audio, overlay, w, h, fps, null, progress, ct, 0);
         }
 
         /// <summary>
         /// sub を渡すと、サブ動画 (ペダルなど) をトリミング・縮小して、表示の下 (映像の上) に重ねる。
-        /// 入力は 0 = メイン、1 = サブ、2 = 表示 (overlay があるとき、標準入力)。サブの音声は使わない
+        /// 入力は 0 = メイン、1 = サブ、2 = 表示 (overlay があるとき、標準入力)。サブの音声は使わない。
+        /// fade (秒) が正なら、最初をフェードイン・最後をフェードアウトする (映像は黒から・黒へ、表示やサブも含めた画面全体。音声も同じ長さで)
         /// </summary>
         public static void ExportClip(string ffmpeg, string path, double start, double dur, string outPath, bool audio,
                                       OverlayFrameSource overlay, int w, int h, double fps, SubClip sub,
-                                      Action<double> progress, CancellationToken ct)
+                                      Action<double> progress, CancellationToken ct, double fade = 0)
         {
+            // 前後のフェードが重ならないよう、長さの半分までにする
+            fade = Math.Min(Math.Max(0, fade), dur / 2);
+            string vfade = "", afade = "";
+            if (fade >= 0.01)
+            {
+                double fo = Math.Max(0, dur - fade);
+                vfade = string.Format(Inv, "fade=t=in:st=0:d={0},fade=t=out:st={1}:d={0}", S(fade), S(fo));
+                afade = string.Format(Inv, "-af \"afade=t=in:st=0:d={0},afade=t=out:st={1}:d={0}\" ", S(fade), S(fo));
+            }
             double ss = Math.Max(0, start);
             string vin = "", vmap = "-map 0:v:0";
             List<string> fc = new List<string>();
@@ -174,11 +184,17 @@ namespace Tk2Gui
                 fc.Add(string.Format(Inv, "[{0}][{1}:v]overlay=0:0:format=auto:eof_action=pass,format=yuv420p[v]", cur, oi));
             }
             else if (sub != null) fc.Add("[" + cur + "]format=yuv420p[v]");
+            if (vfade.Length > 0)
+            {
+                // 重ねたあとの画面全体をフェードする (最後の段の [v] の前に足す)
+                if (fc.Count == 0) fc.Add("[0:v]" + vfade + "[v]");
+                else { int li = fc.Count - 1; fc[li] = fc[li].Substring(0, fc[li].Length - 3) + "," + vfade + "[v]"; }
+            }
             if (fc.Count > 0) vmap = "-filter_complex \"" + string.Join(";", fc) + "\" -map \"[v]\"";
             string args = string.Format(Inv,
                 "-hide_banner -y -ss {0} -i {1} {6}-t {2} {7} {3} -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p " +
                 "{4} -movflags +faststart -progress pipe:1 -nostats {5}",
-                S(ss), Q(path), S(dur), audio ? "-map 0:a:0?" : "", audio ? "-c:a aac -b:a 192k" : "-an", Q(outPath), vin, vmap);
+                S(ss), Q(path), S(dur), audio ? "-map 0:a:0?" : "", audio ? afade + "-c:a aac -b:a 192k" : "-an", Q(outPath), vin, vmap);
             StringBuilder err = new StringBuilder();
             using (Process p = Process.Start(Psi(ffmpeg, args)))
             {

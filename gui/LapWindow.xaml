@@ -36,18 +36,24 @@
                     <StackPanel>
                         <TextBlock Name="CourseText" Text="(未選択)" TextWrapping="Wrap" Margin="0,0,0,6"/>
                         <Button Content="開く..." HorizontalAlignment="Left" Click="OpenCourse_Click"/>
+                        <TextBlock Text="表示名 (動画の表示のコース名)" Margin="0,8,0,2"/>
+                        <TextBox Name="CourseNameBox" LostFocus="CourseName_LostFocus" IsEnabled="False"
+                                 ToolTip="動画の表示の「コース名」に出す名前です。コース定義のファイル名・コース名とは別に決めます。空なら表示しません。入力を終えるとコース定義に保存します"/>
                     </StackPanel>
                 </GroupBox>
 
                 <GroupBox Header="走行ログ (.tk2 / .nmea)">
                     <StackPanel>
-                        <ListBox Name="FileList" Height="100" SelectionMode="Extended"/>
+                        <ListBox Name="FileList" Height="100" SelectionMode="Extended" SelectionChanged="FileList_SelectionChanged"/>
                         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                             <Button Content="追加..." Click="AddFile_Click"/>
                             <Button Content="削除" Click="RemoveFile_Click"/>
                         </StackPanel>
                         <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
                                    Text="ドラッグ＆ドロップでも追加できます。ファイルごとにセッションを分けて解析します。"/>
+                        <TextBlock Name="EventLabel" Text="イベント名" Margin="0,8,0,2"/>
+                        <TextBox Name="EventBox" LostFocus="Event_LostFocus" IsEnabled="False"
+                                 ToolTip="動画の表示の「イベント名」に出す名前です (例: 2026 耐久レース 第 3 戦)。ログごとに決め、ログの付属情報 (ログ名.log.json) に保存します。一覧で選んだログ (選んでいなければ先頭のログ) のものです。空なら表示しません"/>
                     </StackPanel>
                 </GroupBox>
 

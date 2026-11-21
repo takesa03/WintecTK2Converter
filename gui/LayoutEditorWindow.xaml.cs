@@ -58,6 +58,8 @@ namespace Tk2Gui
             new Elem { Name = "gmeter", Label = "G メーター", Keys = new[] { "x", "y", "scale" } },
             new Elem { Name = "tacho", Label = "回転計", Keys = new[] { "x", "y", "scale", "opacity" }, Note = "音声から回転数を解析したときだけ出ます。" },
             new Elem { Name = "map", Label = "コース図", Keys = new[] { "x", "y", "width", "height", "background", "panel", "panelopacity" } },
+            new Elem { Name = "course", Label = "コース名", Keys = new[] { "x", "y", "size", "background", "panel", "panelopacity" }, Note = "コース定義の表示名を出します (ラップ解析の画面の「表示名」)。空なら出ません。" },
+            new Elem { Name = "event", Label = "イベント名", Keys = new[] { "x", "y", "size", "background", "panel", "panelopacity" }, Note = "ログごとのイベント名を出します (ラップ解析の画面の「イベント名」)。空なら出ません。" },
             new Elem { Name = "session", Label = "ドライバー・心拍", Keys = new[] { "x", "y", "size", "background", "panel", "panelopacity" }, Note = "ドライバー名と心拍だけを出します。セッション番号はラップタイムの先頭の行に出ます。" },
             new Elem { Name = "heart", Label = "心拍", Keys = new[] { "size" }, NoPosition = true, Note = "位置はセッション・ドライバーの右に付いて動きます。FIT を合わせたセッションだけに出ます。" },
             new Elem { Name = "laptime", Label = "ラップタイム", Keys = new[] { "x", "y", "size", "laps", "session", "background", "panel", "panelopacity" } },

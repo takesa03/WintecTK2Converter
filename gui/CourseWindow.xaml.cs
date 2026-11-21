@@ -1001,6 +1001,8 @@ namespace Tk2Gui
                 string path = dlg.FileName;
                 string oldId = CourseDefinition.ReadId(path);
                 string prevId = _def.Id;
+                // 表示名 (動画の表示用) は作り直しても消さない: 上書きする先の定義のものを引き継ぐ
+                if (string.IsNullOrEmpty(_def.DisplayName)) _def.DisplayName = CourseDefinition.ReadDisplayName(path);
                 if (asNew) _def.Id = CourseDefinition.NewId();
                 else if (oldId != null) _def.Id = oldId;                  // 上書き: 同じ条件として ID を引き継ぐ
                 else if (string.IsNullOrEmpty(_def.Id)) _def.Id = CourseDefinition.NewId();
