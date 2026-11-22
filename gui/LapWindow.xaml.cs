@@ -224,34 +224,42 @@ namespace Tk2Gui
 
         void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e) { ShowEvent(); }
 
-        /// <summary>一覧で選んだログ (選んでいなければ先頭のログ) のイベント名を欄に出す</summary>
+        /// <summary>一覧で選んだログ (選んでいなければ先頭のログ) のイベント名・マシン名を欄に出す</summary>
         void ShowEvent()
         {
-            if (EventBox.IsKeyboardFocusWithin) return;   // 入力中は書き換えない
+            if (EventBox.IsKeyboardFocusWithin || MachineBox.IsKeyboardFocusWithin) return;   // 入力中は書き換えない
             string p = FileList.SelectedItems.Count > 0 ? FileList.SelectedItems[0] as string
                      : FileList.Items.Count > 0 ? FileList.Items[0] as string : null;
             if (p == _eventLog && p != null) return;
             _eventLog = p;
-            EventBox.Text = p == null ? "" : (LogFile.Load(p).Event ?? "");
-            EventBox.IsEnabled = p != null && !_readOnly;
-            EventLabel.Text = p == null || FileList.Items.Count < 2 ? "イベント名" : "イベント名 (" + System.IO.Path.GetFileName(p) + ")";
+            LogData d = p == null ? null : LogFile.Load(p);
+            EventBox.Text = d == null ? "" : (d.Event ?? "");
+            MachineBox.Text = d == null ? "" : (d.Machine ?? "");
+            EventBox.IsEnabled = MachineBox.IsEnabled = p != null && !_readOnly;
+            string tail = p == null || FileList.Items.Count < 2 ? "" : " (" + System.IO.Path.GetFileName(p) + ")";
+            EventLabel.Text = "イベント名" + tail;
+            MachineLabel.Text = "マシン名" + tail;
         }
 
+        /// <summary>イベント名・マシン名の欄の入力を終えたら log.json に保存する (変わった方だけ)</summary>
         void Event_LostFocus(object sender, RoutedEventArgs e)
         {
             string p = _eventLog;
             if (p == null || _readOnly) return;
-            string v = EventBox.Text.Trim();
+            bool machine = sender == MachineBox;
+            string what = machine ? "マシン名" : "イベント名";
+            string v = (machine ? MachineBox : EventBox).Text.Trim();
             try
             {
                 string nv = v.Length == 0 ? null : v;
-                if (LogFile.Load(p).Event != nv)   // 変わっていなければ書かない (log.json を作らない)
+                LogData cur = LogFile.Load(p);
+                if ((machine ? cur.Machine : cur.Event) != nv)   // 変わっていなければ書かない (log.json を作らない)
                 {
-                    LogFile.Update(p, d => d.Event = nv);
-                    Log("イベント名を保存しました (" + System.IO.Path.GetFileName(p) + "): " + (v.Length == 0 ? "(なし)" : v));
+                    LogFile.Update(p, d => { if (machine) d.Machine = nv; else d.Event = nv; });
+                    Log(what + "を保存しました (" + System.IO.Path.GetFileName(p) + "): " + (v.Length == 0 ? "(なし)" : v));
                 }
             }
-            catch (Exception ex) { Log("イベント名を保存できません: " + ex.Message); }
+            catch (Exception ex) { Log(what + "を保存できません: " + ex.Message); }
             _eventLog = null;
             ShowEvent();
         }

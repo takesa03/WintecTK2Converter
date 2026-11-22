@@ -221,6 +221,7 @@ namespace Tk2Gui
             // コース名 (コース定義の表示名) とイベント名 (ログの log.json の event)。空なら何も描かない
             if (L.Shown("course")) Part(dc, "course", c => DrawTitle(c, "course", D.CourseTitle));
             if (L.Shown("event")) Part(dc, "event", c => DrawTitle(c, "event", D.EventName));
+            if (L.Shown("machine")) Part(dc, "machine", c => DrawTitle(c, "machine", D.MachineName));
             if (L.Shown("speedometer")) Part(dc, "speedometer", c => DrawSpeed(c, st));
             if (L.Shown("gmeter")) Part(dc, "gmeter", c => DrawG(c, st));
             if (L.Shown("session")) Part(dc, "session", c => DrawSession(c, st));

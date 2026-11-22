@@ -94,6 +94,7 @@ namespace Tk2Gui
         public readonly EngineStore.FileData Engine;   // 回転数・アクセルの解析結果 (ログ名.log.json の engine と ログ名.rpm.json。無ければ null)
         public volatile HeartTrack Heart;              // 心拍 (ログ名.log.json の heart と FIT。無ければ null = 表示しない)。時刻合わせの画面で入れ替える
         public readonly string EventName;              // イベント名 (ログ名.log.json の event。無ければ null = 表示しない)
+        public readonly string MachineName;            // マシン名 (ログ名.log.json の machine。無ければ null = 表示しない)
         /// <summary>コース名 (コース定義の表示名。ラップ解析の画面で変えると次の描画から変わる。無ければ null = 表示しない)</summary>
         public string CourseTitle { get { return Def == null ? null : Def.DisplayName; } }
 
@@ -154,7 +155,13 @@ namespace Tk2Gui
             for (int i = 0; i < n; i++) if (_t[i] >= s0 && _t[i] <= s1) mx = Math.Max(mx, _v[i]);
             if (sess.BestMaxKmh.HasValue) mx = Math.Max(mx, sess.BestMaxKmh.Value);
             MaxSpeedKmh = mx;
-            try { EventName = string.IsNullOrEmpty(sess.FilePath) ? null : LogFile.Load(sess.FilePath).Event; } catch (Exception) { EventName = null; }
+            try
+            {
+                LogData ld = string.IsNullOrEmpty(sess.FilePath) ? null : LogFile.Load(sess.FilePath);
+                EventName = ld == null ? null : ld.Event;
+                MachineName = ld == null ? null : ld.Machine;
+            }
+            catch (Exception) { EventName = null; MachineName = null; }
             Engine = EngineStore.Load(sess.FilePath);
             if (Engine != null && !Engine.IsGeared && !(Engine.RpmPerKmh > 0)) Engine = null;
             ReloadHeart();

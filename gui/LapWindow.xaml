@@ -54,6 +54,9 @@
                         <TextBlock Name="EventLabel" Text="イベント名" Margin="0,8,0,2"/>
                         <TextBox Name="EventBox" LostFocus="Event_LostFocus" IsEnabled="False"
                                  ToolTip="動画の表示の「イベント名」に出す名前です (例: 2026 耐久レース 第 3 戦)。ログごとに決め、ログの付属情報 (ログ名.log.json) に保存します。一覧で選んだログ (選んでいなければ先頭のログ) のものです。空なら表示しません"/>
+                        <TextBlock Name="MachineLabel" Text="マシン名" Margin="0,8,0,2"/>
+                        <TextBox Name="MachineBox" LostFocus="Event_LostFocus" IsEnabled="False"
+                                 ToolTip="動画の表示の「マシン名」に出す名前です (例: DC5 インテグラ)。ログごとに決め、ログの付属情報 (ログ名.log.json) に保存します。一覧で選んだログ (選んでいなければ先頭のログ) のものです。空なら表示しません"/>
                     </StackPanel>
                 </GroupBox>
 

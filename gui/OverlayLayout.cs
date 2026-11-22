@@ -128,6 +128,9 @@ namespace Tk2Gui
             // イベント名: 上の中央
             { "event", new[] { "show", "1", "anchor", "top", "x", "0", "y", "15", "size", "30", "color", "#FFFFFF",
                                "background", "0", "panel", "#1F000000", "panelopacity", "0.12", "panelpad", "8" } },
+            // マシン名: 左下の速度計の上 (既定の速度計は y = 10・scale 0.6 で、見えている上端が下から約 265)
+            { "machine", new[] { "show", "1", "anchor", "bottomleft", "x", "20", "y", "275", "size", "26", "color", "#FFFFFF",
+                                 "background", "0", "panel", "#1F000000", "panelopacity", "0.12", "panelpad", "8" } },
         };
 
         void FillDefaults()
